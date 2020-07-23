@@ -115,11 +115,18 @@ bool Scene::LoadInterface(const String & fileName)
 		imageData.name = image.name;
 		Util::ensureUnifySlash(imageData.name);
 		imageData.name = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.name);
-		if (!image.maskName.empty()) {
-			imageData.maskName = image.maskName;
-			Util::ensureUnifySlash(imageData.maskName);
-			imageData.maskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.maskName);
-		}
+
+		// Prepare label image
+		imageData.maskName = Util::getFilePath(image.name) + PATH_SEPARATOR + Util::getFileName(image.name) + "_l.png"; //
+		Util::ensureUnifySlash(imageData.maskName);
+		imageData.maskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.maskName);
+
+		//if (!image.maskName.empty()) {
+		//	imageData.maskName = image.maskName;
+		//	Util::ensureUnifySlash(imageData.maskName);
+		//	imageData.maskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.maskName);
+		//}
+
 		imageData.poseID = image.poseID;
 		if (imageData.poseID == NO_ID) {
 			DEBUG_EXTRA("warning: uncalibrated image '%s'", image.name.c_str());

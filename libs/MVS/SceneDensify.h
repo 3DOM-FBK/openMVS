@@ -56,6 +56,7 @@ public:
 	bool SelectViews(DepthData& depthData);
 	bool InitViews(DepthData& depthData, IIndex idxNeighbor, IIndex numNeighbors);
 	bool InitDepthMap(DepthData& depthData);
+	bool GenerateDepthPrior(DepthData& depthData);
 	bool EstimateDepthMap(IIndex idxImage);
 
 	bool RemoveSmallSegments(DepthData& depthData);

@@ -113,7 +113,7 @@ extern float fOptimizerEps;
 extern int nOptimizerMaxIters;
 extern unsigned nSpeckleSize;
 extern unsigned nIpolGapSize;
-extern int nIgnoreMaskLabel;
+extern String nIgnoreMaskLabel;
 extern unsigned nOptimize;
 extern unsigned nEstimateColors;
 extern unsigned nEstimateNormals;
@@ -149,6 +149,7 @@ struct MVS_API DepthData {
 		Camera camera; // camera matrix corresponding to this image
 		Image32F image; // image float intensities
 		Image* pImageData; // image data
+		DepthMap depthMapPrior; // diventa DepthMap
 
 		inline IIndex GetID() const {
 			return pImageData->ID;
@@ -174,6 +175,7 @@ struct MVS_API DepthData {
 	DepthMap depthMap; // depth-map
 	NormalMap normalMap; // normal-map in camera space
 	ConfidenceMap confMap; // confidence-map
+	Image16U labels;
 	float dMin, dMax; // global depth range for this image
 	unsigned references; // how many times this depth-map is referenced (on 0 can be safely unloaded)
 	CriticalSection cs; // used to count references
@@ -426,7 +428,7 @@ struct MVS_API DepthEstimator {
 			normal = RMatrixBaseF(normal.cross(viewDir), MINF((ACOS(cosAngLen/norm(viewDir))-FD2R(90.f))*1.01f, -0.001f)) * normal;
 	}
 
-	static bool ImportIgnoreMask(const Image&, const Image8U::Size&, BitMatrix&, uint16_t nIgnoreMaskLabel);
+	static bool ImportIgnoreMask(const Image&, const Image8U::Size&, BitMatrix&, String& nIgnoreMaskLabel);
 	static void MapMatrix2ZigzagIdx(const Image8U::Size& size, DepthEstimator::MapRefArr& coords, const BitMatrix& mask, int rawStride=16);
 
 	const float smoothBonusDepth, smoothBonusNormal;

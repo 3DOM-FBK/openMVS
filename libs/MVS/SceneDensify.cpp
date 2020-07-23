@@ -334,6 +334,7 @@ bool DepthMapsData::InitViews(DepthData& depthData, IIndex idxNeighbor, IIndex n
 			imageTrg.pImageData->image.toGray(imageTrg.image, cv::COLOR_BGR2GRAY, true);
 			if (imageTrg.ScaleImage(imageTrg.image, imageTrg.image, imageTrg.scale))
 				imageTrg.camera = imageTrg.pImageData->GetCamera(scene.platforms, imageTrg.image.size());
+			imageTrg.depthMapPrior = DepthMap(imageTrg.image.size());
 		}
 		#if TD_VERBOSE != TD_VERBOSE_OFF
 		// print selected views
@@ -357,6 +358,7 @@ bool DepthMapsData::InitViews(DepthData& depthData, IIndex idxNeighbor, IIndex n
 	imageRef.pImageData = &scene.images[idxImage];
 	imageRef.pImageData->image.toGray(imageRef.image, cv::COLOR_BGR2GRAY, true);
 	imageRef.camera = imageRef.pImageData->camera;
+	imageRef.depthMapPrior = DepthMap(imageRef.image.size());
 	return true;
 } // InitViews
 /*----------------------------------------------------------------*/
@@ -394,7 +396,7 @@ void* STCALL DepthMapsData::ScoreDepthMapTmp(void* arg)
 	DepthEstimator& estimator = *((DepthEstimator*)arg);
 	IDX idx;
 	while ((idx=(IDX)Thread::safeInc(estimator.idxPixel)) < estimator.coords.GetSize()) {
-		const ImageRef& x = estimator.coords[idx];
+		const ImageRef& x = estimator.coords[idx];		
 		if (!estimator.PreparePixelPatch(x) || !estimator.FillPixelPatch()) {
 			estimator.depthMap0(x) = 0;
 			estimator.normalMap0(x) = Normal::ZERO;
@@ -546,7 +548,7 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 	#endif
 	if (prevDepthMapSize != size) {
 		BitMatrix mask;
-		if (OPTDENSE::nIgnoreMaskLabel >= 0 && DepthEstimator::ImportIgnoreMask(*depthData.GetView().pImageData, depthData.depthMap.size(), mask, (uint16_t)OPTDENSE::nIgnoreMaskLabel))
+		if (!OPTDENSE::nIgnoreMaskLabel.IsEmpty() && DepthEstimator::ImportIgnoreMask(*depthData.GetView().pImageData, depthData.depthMap.size(), mask, OPTDENSE::nIgnoreMaskLabel))
 			depthData.ApplyIgnoreMask(mask);
 		DepthEstimator::MapMatrix2ZigzagIdx(size, coords, mask, MAXF(64,(int)nMaxThreads*8));
 		#if 0
@@ -569,9 +571,9 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 	if (nMaxThreads > 1)
 		threads.Resize(nMaxThreads-1); // current thread is also used
 	volatile Thread::safe_t idxPixel;
-
+	
 	// initialize the reference confidence map (NCC score map) with the score of the current estimates
-	{
+	{		
 		// create working threads
 		idxPixel = -1;
 		ASSERT(estimators.IsEmpty());
@@ -656,6 +658,8 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		estimators.Release();
 	}
 
+	GenerateDepthPrior(depthData);
+
 	DEBUG_EXTRA("Depth-map for image %3u %s: %dx%d (%s)", image.GetID(),
 		depthData.images.GetSize() > 2 ?
 			String::FormatString("estimated using %2u images", depthData.images.GetSize()-1).c_str() :
@@ -664,8 +668,79 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 	return true;
 } // EstimateDepthMap
 /*----------------------------------------------------------------*/
+bool DepthMapsData::GenerateDepthPrior(DepthData& depthData)
+{
+	std::cout << (*depthData.GetView().pImageData).maskName << std::endl;
+	depthData.labels.Load((*depthData.GetView().pImageData).maskName);
+	DepthMap& depthMap = depthData.images.First().depthMapPrior;
 
+	if (!depthData.labels.empty()){
+		// For now just initialize 3 points that will be used to estimate the plane
+		Point3d leftMost(depthData.labels.size().width, 0, 0);
+		Point3d rightMost(0, 0, 0);
+		Point3d topMost(0, depthData.labels.size().height, 0);
 
+		ImageRefArr regionPixels;
+		for (int y=0; y<depthData.labels.size().height; ++y) {
+			for (int x=0; x<depthData.labels.size().width; ++x) {
+				
+				const ImageRef& coord = ImageRef(x, y);
+				depthMap(coord) = 0;
+				int hwsize = 1;
+				// TODO - prendere tutti i pixel della textureless region (x, y, depth) e fittare piano.
+				// per ora faccio un test riempiendo i pixel neri con valori depth dei pixel vicini
+				if (depthData.labels(coord) == 255) {	
+					// Insert coordinates of the region in a list
+					regionPixels.Insert(coord);
+
+					// Search for pixels ad the border of the region that have depth informations
+					for (int wr = y-hwsize; wr <= y+hwsize; wr++) {
+						for (int wc = x-hwsize; wc <= x+hwsize; wc++) {	
+							const ImageRef& c = ImageRef(wc, wr);
+							if (depthData.labels.isInsideWithBorder(c, hwsize)) {
+								if(depthData.labels(c) == 0 && depthData.depthMap(c) != 0) {				
+									// Update points for the plane estimation						
+									if (x < leftMost.x)
+										leftMost = Point3d(wc, wr, depthData.depthMap(c));
+									if (x > rightMost.x)
+										rightMost = Point3d(wc, wr, depthData.depthMap(c));
+									if (y < topMost.y)
+										topMost = Point3d(wc, wr, depthData.depthMap(c));
+									std::cout << wc << " " << wr << " " << depthData.depthMap(c) << std::endl;
+									break;
+								}
+							}
+						}
+					}
+				}			
+			}
+		}
+		
+		// Construct the plane from 3 points
+		const Planed plane(leftMost, rightMost, topMost);
+		std::cout << leftMost << " " << rightMost << " " << topMost << std::endl;
+		std::cout << plane.m_vN.x() << " " << plane.m_vN.y() << " " << plane.m_vN.z() << std::endl;
+		// Iterate through region pixels and do the ray trace to get depth informations for each pixel		
+		IDX idx;
+		while (idx++ < regionPixels.GetSize())
+		{
+			const ImageRef& c = regionPixels[idx];
+			const Ray3d rayA(Point3d((double)c.x, (double)c.y, 0), Point3d(0, 0, -1));	
+			const Point3d intersection(rayA.Intersects(plane));
+			depthMap(c) = intersection.z;
+			//estimator.normalMap0(c) = Normal(plane.m_vN.x(), plane.m_vN.y(), plane.m_vN.z());
+		}
+
+		#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
+		// save intermediate depth map as image
+		if (g_nVerbosityLevel > 4) {
+			ExportDepthMap(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.png"), depthMap);
+		}
+		#endif
+	}//
+	
+	return true;
+}
 // filter out small depth segments from the given depth map
 bool DepthMapsData::RemoveSmallSegments(DepthData& depthData)
 {
@@ -1715,7 +1790,7 @@ void Scene::DenseReconstructionEstimate(void* pData)
 			}
 			break; }
 
-		case EVT_OPTIMIZEDEPTHMAP: {
+		case EVT_OPTIMIZEDEPTHMAP: {			
 			const EVTOptimizeDepthMap& evtImage = *((EVTOptimizeDepthMap*)(Event*)evt);
 			const IIndex idx = data.images[evtImage.idxImage];
 			DepthData& depthData(data.depthMaps.arrDepthData[idx]);
