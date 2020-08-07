@@ -65,9 +65,9 @@ public:
 	bool FilterDepthMap(DepthData& depthData, const IIndexArr& idxNeighbors, bool bAdjust=true);
 	void FuseDepthMaps(PointCloud& pointcloud, bool bEstimateColor, bool bEstimateNormal);
 
+
 protected:
-	static void* STCALL ScoreDepthMapTmp(void*);
-	static void* STCALL EstimateDepthMapTmp(void*);
+	static void* STCALL ScoreDepthMapTmp(void*);	
 	static void* STCALL EndDepthMapTmp(void*);
 
 public:
@@ -80,6 +80,10 @@ public:
 	Image8U::Size prevDepthMapSizeTrg; // ... same for target image
 	DepthEstimator::MapRefArr coords; // map pixel index to zigzag matrix coordinates
 	DepthEstimator::MapRefArr coordsTrg; // ... same for target image
+
+	DepthEstimator::WeightMap weightMap0;
+
+	static void *STCALL EstimateDepthMapTmp(void *);
 };
 /*----------------------------------------------------------------*/
 

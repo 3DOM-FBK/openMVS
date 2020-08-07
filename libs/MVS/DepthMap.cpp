@@ -519,15 +519,17 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 	}
 	#endif
 	
-	// if(!image1.view.depthMapPrior.empty())
-	// {
-	// 	struct ValidDepth{
-	// 		const Depth d0;
-	// 		inline bool operator() (Depth d) const { return IsDepthSimilar(d0, d, 0.03f); }
-	// 	};
-		
-	// 	// Increment score as suggested by cDc
-	// }
+	if (!image0.depthMapPrior.empty())
+	{		
+		if (image0.depthMapPrior(x0) != 0)
+		{
+			//float factor = ABS(image0.depthMapPrior(x0) - depth) / image0.depthMapPrior(x0);
+			//const float factorDepth(DENSE_EXP(SQUARE((depth - image0.depthMapPrior(x0)) / depth) * smoothSigmaDepth));
+			//const float factorNormal(DENSE_EXP(SQUARE(ACOS(ComputeAngle<float, float>(normal.ptr(), image0.normalMapPrior(x0).ptr()))) * smoothSigmaNormal));
+			//std::cout << x0 << ": " << image0.depthMapPrior(x0) << " factor: " << factor << std::endl;
+			score *= 0.2;
+		}
+	}
 
 	ASSERT(ISFINITE(score));
 	return score;

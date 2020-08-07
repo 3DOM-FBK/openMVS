@@ -29,14 +29,32 @@
 *      containing it.
 */
 
+
+
 #include "Common.h"
 #include "Scene.h"
 #include "SceneDensify.h"
 // MRF: view selection
 #include "../Math/TRWS/MRFEnergy.h"
 
-using namespace MVS;
+#include <CGAL/Shape_detection_3.h>
 
+#include <CGAL/Shape_detection_3/Efficient_RANSAC.h>
+#include <CGAL/Shape_detection_3/Efficient_RANSAC_traits.h>
+#include <CGAL/Shape_detection_3/Plane.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/IO/read_xyz_points.h>
+#include <CGAL/Point_with_normal_3.h>
+#include <CGAL/property_map.h>
+#include <CGAL/jet_estimate_normals.h>
+#include <CGAL/linear_least_squares_fitting_3.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/linear_least_squares_fitting_3.h>
+#include <CGAL/linear_least_squares_fitting_points_3.h>
+#include <CGAL/Simple_cartesian.h>
+#include <CGAL/centroid.h>
+
+using namespace MVS;
 
 // D E F I N E S ///////////////////////////////////////////////////
 
@@ -44,7 +62,6 @@ using namespace MVS;
 #ifdef _USE_OPENMP
 #define DENSE_USE_OPENMP
 #endif
-
 
 // S T R U C T S ///////////////////////////////////////////////////
 
@@ -334,7 +351,6 @@ bool DepthMapsData::InitViews(DepthData& depthData, IIndex idxNeighbor, IIndex n
 			imageTrg.pImageData->image.toGray(imageTrg.image, cv::COLOR_BGR2GRAY, true);
 			if (imageTrg.ScaleImage(imageTrg.image, imageTrg.image, imageTrg.scale))
 				imageTrg.camera = imageTrg.pImageData->GetCamera(scene.platforms, imageTrg.image.size());
-			imageTrg.depthMapPrior = DepthMap(imageTrg.image.size());
 		}
 		#if TD_VERBOSE != TD_VERBOSE_OFF
 		// print selected views
@@ -358,7 +374,6 @@ bool DepthMapsData::InitViews(DepthData& depthData, IIndex idxNeighbor, IIndex n
 	imageRef.pImageData = &scene.images[idxImage];
 	imageRef.pImageData->image.toGray(imageRef.image, cv::COLOR_BGR2GRAY, true);
 	imageRef.camera = imageRef.pImageData->camera;
-	imageRef.depthMapPrior = DepthMap(imageRef.image.size());
 	return true;
 } // InitViews
 /*----------------------------------------------------------------*/
@@ -396,7 +411,7 @@ void* STCALL DepthMapsData::ScoreDepthMapTmp(void* arg)
 	DepthEstimator& estimator = *((DepthEstimator*)arg);
 	IDX idx;
 	while ((idx=(IDX)Thread::safeInc(estimator.idxPixel)) < estimator.coords.GetSize()) {
-		const ImageRef& x = estimator.coords[idx];		
+		const ImageRef& x = estimator.coords[idx];
 		if (!estimator.PreparePixelPatch(x) || !estimator.FillPixelPatch()) {
 			estimator.depthMap0(x) = 0;
 			estimator.normalMap0(x) = Normal::ZERO;
@@ -439,7 +454,7 @@ void* STCALL DepthMapsData::EndDepthMapTmp(void* arg)
 		Depth& depth = estimator.depthMap0(x);
 		float& conf = estimator.confMap0(x);
 		// check if the score is good enough
-		// and that the cross-estimates is close enough to the current estimate
+		// and that the cross-estimates is close enough to the current estimate				
 		if (depth <= 0 || conf >= OPTDENSE::fNCCThresholdKeep) {
 			#if 1 // used if gap-interpolation is active
 			conf = 0;
@@ -448,7 +463,7 @@ void* STCALL DepthMapsData::EndDepthMapTmp(void* arg)
 			depth = 0;
 		} else {
 			#if 1
-			// converted ZNCC [0-2] score, where 0 is best, to [0-1] confidence, where 1 is best
+			// converted ZNCC [0-2] score, where 0 is best, to [0-1] confidence, where 1 is best			
 			conf = conf>=1.f ? 0.f : 1.f-conf;
 			#else
 			#if 1
@@ -541,7 +556,8 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 
 	// init integral images and index to image-ref map for the reference data
 	#if DENSE_NCC == DENSE_NCC_WEIGHTED
-	DepthEstimator::WeightMap weightMap0(size.area()-(size.width+1)*DepthEstimator::nSizeHalfWindow);
+	//	DepthEstimator::WeightMap weightMap0(size.area()-(size.width+1)*DepthEstimator::nSizeHalfWindow);
+	weightMap0 = DepthEstimator::WeightMap(size.area() - (size.width + 1) * DepthEstimator::nSizeHalfWindow);
 	#else
 	Image64F imageSum0;
 	cv::integral(image.image, imageSum0, CV_64F);
@@ -635,6 +651,42 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		#endif
 	}
 
+	GenerateDepthPrior(depthData);
+
+	// run propagation and random refinement cycles on the reference data
+	for (unsigned iter=4; iter<8; ++iter) 
+	{
+		// create working threads
+		idxPixel = -1;
+		ASSERT(estimators.IsEmpty());
+		while (estimators.GetSize() < nMaxThreads)
+			estimators.AddConstruct(iter, depthData, idxPixel,
+#if DENSE_NCC == DENSE_NCC_WEIGHTED
+									weightMap0,
+#else
+									imageSum0,
+#endif
+									coords);
+		ASSERT(estimators.GetSize() == threads.GetSize() + 1);
+		FOREACH(i, threads)
+		threads[i].start(EstimateDepthMapTmp, &estimators[i]);
+		EstimateDepthMapTmp(&estimators.Last());
+		// wait for the working threads to close
+		FOREACHPTR(pThread, threads)
+		pThread->join();
+		estimators.Release();
+#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
+		// save intermediate depth map as image
+		if (g_nVerbosityLevel > 4)
+		{
+			const String path(ComposeDepthFilePath(image.GetID(), "iter") + String::ToString(iter));
+			ExportDepthMap(path + ".png", depthData.depthMap);
+			ExportNormalMap(path + ".normal.png", depthData.normalMap);
+			ExportPointCloud(path + ".ply", *depthData.images.First().pImageData, depthData.depthMap, depthData.normalMap);
+		}
+#endif
+	}
+
 	// remove all estimates with too big score and invert confidence map
 	{
 		// create working threads
@@ -656,9 +708,7 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		FOREACHPTR(pThread, threads)
 			pThread->join();
 		estimators.Release();
-	}
-
-	GenerateDepthPrior(depthData);
+	} 	
 
 	DEBUG_EXTRA("Depth-map for image %3u %s: %dx%d (%s)", image.GetID(),
 		depthData.images.GetSize() > 2 ?
@@ -668,77 +718,179 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 	return true;
 } // EstimateDepthMap
 /*----------------------------------------------------------------*/
-bool DepthMapsData::GenerateDepthPrior(DepthData& depthData)
+
+bool DepthMapsData::GenerateDepthPrior(DepthData &depthData)
 {
-	std::cout << (*depthData.GetView().pImageData).maskName << std::endl;
-	depthData.labels.Load((*depthData.GetView().pImageData).maskName);
-	DepthMap& depthMap = depthData.images.First().depthMapPrior;
 
-	if (!depthData.labels.empty()){
-		// For now just initialize 3 points that will be used to estimate the plane
-		Point3d leftMost(depthData.labels.size().width, 0, 0);
-		Point3d rightMost(0, 0, 0);
-		Point3d topMost(0, depthData.labels.size().height, 0);
+	typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
+	
+	typedef std::pair<Kernel::Point_3, Kernel::Vector_3> Point_with_normal;
+	typedef std::vector<Point_with_normal> Pwn_vector;
+	typedef CGAL::First_of_pair_property_map<Point_with_normal> Point_map;
+	typedef CGAL::Second_of_pair_property_map<Point_with_normal> Normal_map;
 
-		ImageRefArr regionPixels;
-		for (int y=0; y<depthData.labels.size().height; ++y) {
-			for (int x=0; x<depthData.labels.size().width; ++x) {
-				
-				const ImageRef& coord = ImageRef(x, y);
-				depthMap(coord) = 0;
-				int hwsize = 1;
-				// TODO - prendere tutti i pixel della textureless region (x, y, depth) e fittare piano.
-				// per ora faccio un test riempiendo i pixel neri con valori depth dei pixel vicini
-				if (depthData.labels(coord) == 255) {	
-					// Insert coordinates of the region in a list
-					regionPixels.Insert(coord);
+	//typedef CGAL::Shape_detection_3::Shape_detection_traits<Kernel, Pwn_vector, Point_map, Normal_map> Traits;
+	typedef CGAL::Shape_detection_3::Efficient_RANSAC_traits<Kernel, Pwn_vector, Point_map, Normal_map> Traits;
+	typedef CGAL::Shape_detection_3::Efficient_RANSAC<Traits> Efficient_ransac;
+	typedef CGAL::Shape_detection_3::Plane<Traits> Plane;
 
-					// Search for pixels ad the border of the region that have depth informations
-					for (int wr = y-hwsize; wr <= y+hwsize; wr++) {
-						for (int wc = x-hwsize; wc <= x+hwsize; wc++) {	
-							const ImageRef& c = ImageRef(wc, wr);
-							if (depthData.labels.isInsideWithBorder(c, hwsize)) {
-								if(depthData.labels(c) == 0 && depthData.depthMap(c) != 0) {				
-									// Update points for the plane estimation						
-									if (x < leftMost.x)
-										leftMost = Point3d(wc, wr, depthData.depthMap(c));
-									if (x > rightMost.x)
-										rightMost = Point3d(wc, wr, depthData.depthMap(c));
-									if (y < topMost.y)
-										topMost = Point3d(wc, wr, depthData.depthMap(c));
-									std::cout << wc << " " << wr << " " << depthData.depthMap(c) << std::endl;
-									break;
+	typedef Kernel::FT FT;
+	typedef CGAL::Simple_cartesian<FT> K;
+
+	//typedef Kernel_traits<std::iterator_traits<InputIterator>::value_type>::Kernel2 
+
+
+		std::cout << "Loading Label Mask Image: " << (*depthData.GetView().pImageData).maskName << std::endl;
+	if (depthData.labels.Load((*depthData.GetView().pImageData).maskName))
+	{
+		depthData.images.First().depthMapPrior = DepthMap(depthData.GetView().image.size());
+		DepthMap& depthMap = depthData.images.First().depthMapPrior;
+		depthData.images.First().normalMapPrior = NormalMap(depthData.GetView().image.size());
+		NormalMap& normalMap = depthData.images.First().normalMapPrior;
+
+		if (!depthData.labels.empty()){
+			// For now just initialize 3 points that will be used to estimate the plane
+			Point3d leftMost(depthData.labels.size().width, 0, 0);
+			Point3d rightMost(0, 0, 0);
+			Point3d topMost(0, depthData.labels.size().height, 0);
+
+			ImageRefArr regionPixels;
+			Depth avg_depth = 0;
+			Depth sum_depth = 0;
+			//Depth median = 0;
+			//cv::Mat WindowReshape = cv::Mat(Window.rows*Window.cols, 1, CV_32F);
+			//cv::Mat medianTmp;
+
+			for (int y=0; y<depthData.labels.size().height; ++y) {
+				for (int x=0; x<depthData.labels.size().width; ++x) {
+
+					const ImageRef& coord = ImageRef(x, y);
+
+					if (depthData.labels(coord) == 255 && depthData.depthMap(coord) != 0) {
+
+						regionPixels.Insert(coord);
+						sum_depth += depthData.depthMap(coord);
+						
+					}
+				}
+			}
+
+			avg_depth = sum_depth/regionPixels.size();
+			std::cout << "avg_depth: " << avg_depth << std::endl;
+
+			// Points with normals.
+			Pwn_vector point_samples;
+
+			K::Point_3 lsf_points;
+			std::vector<K::Point_3> lsf_point_samples;
+
+			regionPixels.clear();
+
+			for (int y=0; y<depthData.labels.size().height; ++y) {
+				for (int x=0; x<depthData.labels.size().width; ++x) {
+					
+					const ImageRef& coord = ImageRef(x, y);
+					depthData.images.First().depthMapPrior(coord) = 0;
+					depthData.images.First().normalMapPrior(coord) = Normal::ZERO;
+					int hwsize = 5;
+					// TODO - prendere tutti i pixel della textureless region (x, y, depth) e fittare piano.
+					// per ora faccio un test riempiendo i pixel neri con valori depth dei pixel vicini
+					if (depthData.labels(coord) == 255) {	
+						// Insert coordinates of the region in a list
+						regionPixels.Insert(coord);
+
+						if (depthData.depthMap(coord) != 0 && (depthData.depthMap(coord) < 1.1 * avg_depth) && (depthData.depthMap(coord) > 0.90 * avg_depth))
+						{
+							//depthData.images.First().depthMapPrior(coord) = depthData.depthMap(coord);
+							//depthData.images.First().normalMapPrior(coord) = Normal(depthData.normalMap(coord).x, depthData.normalMap(coord).y, depthData.normalMap(coord).z);
+						
+							K::Point_3 lsf_points(coord.x, coord.y, depthData.depthMap(coord));
+							lsf_point_samples.push_back(lsf_points);
+
+						}
+
+						// Search for pixels ad the border of the region that have depth informations
+						for (int wr = y-hwsize; wr <= y+hwsize; wr++) {
+							for (int wc = x-hwsize; wc <= x+hwsize; wc++) {	
+								const ImageRef& c = ImageRef(wc, wr);
+								//const Point3d& p = Point3d(wr,wc, depthData.depthMap(c));
+						
+								//CGAL::jet_estimate_normals(p, 24);
+
+								if (depthData.labels.isInsideWithBorder(c, hwsize))
+								{
+									if(depthData.labels(c) == 0 && depthData.depthMap(c) != 0) {				
+										// Update points for the plane estimation						
+										if (x < leftMost.x)
+											leftMost = Point3d(wc, wr, depthData.depthMap(c));
+										if (x > rightMost.x)
+											rightMost = Point3d(wc, wr, depthData.depthMap(c));
+										if (y < topMost.y)
+											topMost = Point3d(wc, wr, depthData.depthMap(c));
+
+										break;
+
+										
+									}
 								}
 							}
 						}
-					}
-				}			
-			}
-		}
-		
-		// Construct the plane from 3 points
-		const Planed plane(leftMost, rightMost, topMost);
-		std::cout << leftMost << " " << rightMost << " " << topMost << std::endl;
-		std::cout << plane.m_vN.x() << " " << plane.m_vN.y() << " " << plane.m_vN.z() << std::endl;
-		// Iterate through region pixels and do the ray trace to get depth informations for each pixel		
-		IDX idx;
-		while (idx++ < regionPixels.GetSize())
-		{
-			const ImageRef& c = regionPixels[idx];
-			const Ray3d rayA(Point3d((double)c.x, (double)c.y, 0), Point3d(0, 0, -1));	
-			const Point3d intersection(rayA.Intersects(plane));
-			depthMap(c) = intersection.z;
-			//estimator.normalMap0(c) = Normal(plane.m_vN.x(), plane.m_vN.y(), plane.m_vN.z());
-		}
+					}			
+				}
+			}		
+			
+			std::cout << "lsf_point_samples.size() "  << lsf_point_samples.size() << std::endl;
 
-		#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
-		// save intermediate depth map as image
-		if (g_nVerbosityLevel > 4) {
-			ExportDepthMap(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.png"), depthMap);
-		}
-		#endif
-	}//
-	
+			// Least squares fit
+		
+			typedef K::Plane_3 Plane_ls;
+
+			Plane_ls lsf_plane;
+			K::Point_3 centroid_point (0,0,0);
+			centroid_point = centroid(lsf_point_samples.begin(), lsf_point_samples.end());
+
+			// fit plane to whole points
+			CGAL::linear_least_squares_fitting_3(lsf_point_samples.begin(),lsf_point_samples.end(),lsf_plane, CGAL::Dimension_tag<0>());
+
+			std::cout << "least squares plane has orthogonal_vector: "  << lsf_plane.orthogonal_vector() << std ::endl;
+			//std::cout << "point: "  << lsf_plane.point().x() << " " << lsf_plane.point().y() <<" " << lsf_plane.point().z() << " " << std ::endl;
+			
+			const Planed finalPlane2(leftMost, rightMost, topMost);
+			std::cout << "3-point plane has normal: " <<  finalPlane2.m_vN.x() << " " << finalPlane2.m_vN.y() << " " << finalPlane2.m_vN.z() << std::endl;
+
+			//least-square plane 
+			Planed finalPlane3(Eigen::Vector3d(lsf_plane.orthogonal_vector().x(), lsf_plane.orthogonal_vector().y(),lsf_plane.orthogonal_vector().z()), 
+			Point3d(centroid_point.x(), centroid_point.y(), centroid_point.z()));
+
+
+			// Iterate through region pixels and do the ray trace to get depth informations for each pixel		
+			int idx = -1;
+			while (++idx < regionPixels.GetSize())
+			{
+				const ImageRef& cc = regionPixels[idx];
+				const Ray3d rayA(Point3d((double)cc.x, (double)cc.y, 0), Point3d(0, 0, -1));	
+				const Point3d intersection(rayA.Intersects(finalPlane3));
+				depthData.images.First().depthMapPrior(cc) = intersection.z;
+				depthData.images.First().normalMapPrior(cc) = Normal(finalPlane3.m_vN.x(), finalPlane3.m_vN.y(), finalPlane3.m_vN.z());
+				depthData.depthMap(cc) = intersection.z; // TODO - check difference between actual depth and plane intersection and assign weight
+				depthData.normalMap(cc) = Normal(finalPlane3.m_vN.x(), finalPlane3.m_vN.y(), finalPlane3.m_vN.z());
+			}
+
+			#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
+			// save intermediate depth map as image
+			if (g_nVerbosityLevel > 4) {
+				ExportDepthMap(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.png"), depthData.images.First().depthMapPrior);
+				SaveDepthMap(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.dmap"), depthData.images.First().depthMapPrior);
+				ExportNormalMap(ComposeDepthFilePath(depthData.GetView().GetID(), "normal.prior.png"), depthData.images.First().normalMapPrior);
+				ExportPointCloud(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.ply"), *depthData.images.First().pImageData, depthData.images.First().depthMapPrior, depthData.images.First().normalMapPrior);
+			}
+			#endif
+
+			//lsf_points.clear();
+			lsf_point_samples.clear();
+			//lsf_plane.clear();
+		} //
+	}
 	return true;
 }
 // filter out small depth segments from the given depth map
@@ -1670,8 +1822,9 @@ bool Scene::ComputeDepthMaps(DenseDepthMapData& data)
 			pThread->join();
 	} else {
 		// single-thread execution
-		DenseReconstructionEstimate((void*)&data);
+		DenseReconstructionEstimate((void*)&data);		
 	}
+	//DenseReconstructionRefinePriors((void *)&data);
 	GET_LOGCONSOLE().Play();
 	if (!data.events.IsEmpty())
 		return false;
@@ -1849,6 +2002,65 @@ void Scene::DenseReconstructionEstimate(void* pData)
 	}
 } // DenseReconstructionEstimate
 /*----------------------------------------------------------------*/
+
+void Scene::DenseReconstructionRefinePriors(void *pData)
+{
+	DenseDepthMapData &data = *((DenseDepthMapData *)pData);
+	
+	int idxImage = 0;
+	FOREACH(idImage, data.images){
+		const IIndex idx = data.images[idxImage];
+		DepthData &depthData(data.depthMaps.arrDepthData[idx]);
+		const DepthData::ViewData &image(depthData.images.First());
+		cList<DepthEstimator> estimators;
+
+		LoadDepthMap(ComposeDepthFilePath(depthData.images[idx].GetID(), ".dmap"), depthData.depthMap);
+		LoadNormalMap(ComposeDepthFilePath(depthData.images[idx].GetID(), ".nmap"), depthData.normalMap);
+		LoadConfidenceMap(ComposeDepthFilePath(depthData.images[idx].GetID(), ".dmap"), depthData.confMap);
+
+		for (int i = 0; i < depthData.images.size(); i++){
+			const String path(ComposeDepthFilePath(depthData.images[i].GetID(), "prior.dmap"));
+			
+			if (LoadDepthMap(path, depthData.images[i].depthMapPrior))
+			{
+				std::cout << "Done" << std::endl;
+			}
+		}
+
+		BitMatrix mask;
+		DepthEstimator::MapMatrix2ZigzagIdx(image.image.size(), data.depthMaps.coords, mask, MAXF(64, (int)nMaxThreads * 8));
+      
+		// run propagation and random refinement cycles on the reference data
+		for (unsigned iter = 4; iter < 5; ++iter)
+		{
+			// create working threads
+			volatile Thread::safe_t idxPixel = -1;
+			ASSERT(estimators.IsEmpty());
+			while (estimators.GetSize() < nMaxThreads)
+				estimators.AddConstruct(iter, depthData, idxPixel,
+					#if DENSE_NCC == DENSE_NCC_WEIGHTED
+					data.depthMaps.weightMap0,
+					#else
+					imageSum0,
+					#endif
+					data.depthMaps.coords);
+			
+			DepthMapsData::EstimateDepthMapTmp(&estimators.Last());
+			// wait for the working threads to close			
+			estimators.Release();
+			#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
+			// save intermediate depth map as image
+			if (g_nVerbosityLevel > 4)
+			{
+				const String path(ComposeDepthFilePath(image.GetID(), "iter") + String::ToString(iter));
+				ExportDepthMap(path + ".png", depthData.depthMap);
+				ExportNormalMap(path + ".normal.png", depthData.normalMap);
+				ExportPointCloud(path + ".ply", *depthData.images.First().pImageData, depthData.depthMap, depthData.normalMap);
+			}
+			#endif
+		}
+	}
+}
 
 void* DenseReconstructionFilterTmp(void* arg) {
 	DenseDepthMapData& dataThreads = *((DenseDepthMapData*)arg);

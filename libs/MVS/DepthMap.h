@@ -149,7 +149,8 @@ struct MVS_API DepthData {
 		Camera camera; // camera matrix corresponding to this image
 		Image32F image; // image float intensities
 		Image* pImageData; // image data
-		DepthMap depthMapPrior; // diventa DepthMap
+		DepthMap depthMapPrior;
+		NormalMap normalMapPrior;
 
 		inline IIndex GetID() const {
 			return pImageData->ID;

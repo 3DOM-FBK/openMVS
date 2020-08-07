@@ -44,6 +44,7 @@
 
 // S T R U C T S ///////////////////////////////////////////////////
 
+
 namespace MVS {
 
 // Forward declarations
@@ -85,6 +86,7 @@ public:
 	bool DenseReconstruction(int nFusionMode=0);
 	bool ComputeDepthMaps(DenseDepthMapData& data);
 	void DenseReconstructionEstimate(void*);
+	void DenseReconstructionRefinePriors(void*);
 	void DenseReconstructionFilter(void*);
 	void PointCloudFilter(int thRemove=-1);
 
