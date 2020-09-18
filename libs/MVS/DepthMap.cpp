@@ -93,7 +93,7 @@ MDEFVAR_OPTDENSE_float(fOptimizerEps, "Optimizer Eps", "MRF optimizer stop epsil
 MDEFVAR_OPTDENSE_int32(nOptimizerMaxIters, "Optimizer Max Iters", "MRF optimizer max number of iterations", "80")
 MDEFVAR_OPTDENSE_uint32(nSpeckleSize, "Speckle Size", "maximal size of a speckle (small speckles get removed)", "100")
 MDEFVAR_OPTDENSE_uint32(nIpolGapSize, "Interpolate Gap Size", "interpolate small gaps (left<->right, top<->bottom)", "7")
-MDEFVAR_OPTDENSE_int32(nIgnoreMaskLabel, "Ignore Mask Label", "label id used during ignore mask filter (<0 - disabled)", "-1")
+MDEFVAR_OPTDENSE_string(nIgnoreMaskLabel, "Ignore mask labels", "Label values to ignore in the segmentation masks (separated by comma)", "-1")
 MDEFVAR_OPTDENSE_uint32(nOptimize, "Optimize", "should we filter the extracted depth-maps?", "7") // see DepthFlags
 MDEFVAR_OPTDENSE_uint32(nEstimateColors, "Estimate Colors", "should we estimate the colors for the dense point-cloud?", "2", "0", "1")
 MDEFVAR_OPTDENSE_uint32(nEstimateNormals, "Estimate Normals", "should we estimate the normals for the dense point-cloud?", "0", "1", "2")
@@ -278,23 +278,32 @@ unsigned DepthData::DecRef()
 
 // try to load and apply mask to the depth map;
 // the mask marks as false pixels that should be ignored
-bool DepthEstimator::ImportIgnoreMask(const Image& image0, const Image8U::Size& size, BitMatrix& bmask, uint16_t nIgnoreMaskLabel)
+bool DepthEstimator::ImportIgnoreMask(const Image& image0, const Image8U::Size& size, BitMatrix& bmask, String& nIgnoreMaskLabel)
 {
+	CLISTDEF2(String) ignoreMaskLabels;
+	Util::strSplit(nIgnoreMaskLabel, ",", ignoreMaskLabels);
+
 	ASSERT(image0.IsValid() && !image0.image.empty());
 	if (image0.maskName.empty())
 		return false;
+	if (ignoreMaskLabels.empty())
+		return false;
+		
 	Image16U mask;
 	if (!mask.Load(image0.maskName)) {
 		DEBUG("warning: can not load the segmentation mask '%s'", image0.maskName.c_str());
 		return false;
 	}
+
 	cv::resize(mask, mask, size, 0, 0, cv::INTER_NEAREST);
 	bmask.create(size);
 	bmask.memset(0xFF);
 	for (int r=0; r<size.height; ++r) {
 		for (int c=0; c<size.width; ++c) {
-			if (mask(r,c) == nIgnoreMaskLabel)
-				bmask.unset(r,c);
+			for (int i=0; i < ignoreMaskLabels.size(); i++){
+				if (mask(r,c) == atoi(ignoreMaskLabels[i].c_str()))
+					bmask.unset(r,c);
+			}
 		}
 	}
 	return true;
@@ -509,6 +518,17 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 		score *= (1.f - smoothBonusDepth * factorDepth) * (1.f - smoothBonusNormal * factorNormal);
 	}
 	#endif
+	
+	// Hardcoded for now, will be specified by parameter
+	float fGeometricConsistencyMul = 1.0f;
+	if(!image0.depthMapPrior.empty())
+	{		
+		if (image0.depthMapPrior(x0) != 0)
+		{
+			score += fGeometricConsistencyMul * DepthSimilarity(depth, image0.depthMapPrior(x0));
+		}			
+	}
+
 	ASSERT(ISFINITE(score));
 	return score;
 }
