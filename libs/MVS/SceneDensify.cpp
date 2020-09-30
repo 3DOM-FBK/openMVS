@@ -642,6 +642,7 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 	GenerateDepthPrior(depthData);
 
 	// run propagation and random refinement cycles on the reference data
+#if 1
 	for (unsigned iter = 4; iter < 8; ++iter) {
 		// create working threads
 		idxPixel = -1;
@@ -672,6 +673,7 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		}
 		#endif
 	}
+#endif
 
 	// remove all estimates with too big score and invert confidence map
 	{
@@ -710,7 +712,14 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 	typedef CGAL::Simple_cartesian<Kernel::FT> K;
 
 	std::cout << "Loading Label Mask Image: " << (*depthData.GetView().pImageData).maskName << std::endl;
+	
 	if (depthData.labels.Load((*depthData.GetView().pImageData).maskName)) {
+
+		if (depthData.labels.size() != depthData.GetView().image.size())
+		{
+			cv::resize(depthData.labels, depthData.labels, depthData.GetView().image.size(), 0, 0, cv::INTER_NEAREST);
+		}
+
 		depthData.images.First().depthMapPrior = DepthMap(depthData.GetView().image.size());
 		DepthMap& depthMap = depthData.images.First().depthMapPrior;
 		depthData.images.First().normalMapPrior = NormalMap(depthData.GetView().image.size());
@@ -720,11 +729,16 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 
 			ImageRefArr regionPixels; // pixels of the region planar area 
 
-			std::ofstream debug(ComposeDepthFilePath(depthData.GetView().GetID(), "region.txt").c_str());
+			//std::ofstream debug(ComposeDepthFilePath(depthData.GetView().GetID(), "region.txt").c_str());
 
 			std::vector<K::Point_3> leastSquarePointSamples;
 
 			int count = 0;
+
+			cv::Scalar mean, stddev;
+
+			cv::meanStdDev(depthData.depthMap, mean, stddev, depthData.labels);
+			float outlierTh = std::abs(mean[0] - stddev[0] * 3.5);
 
 			for (int y=0; y<depthData.labels.size().height; ++y) {
 				for (int x=0; x<depthData.labels.size().width; ++x) {				
@@ -736,32 +750,16 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 					if (depthData.labels(coord) == 255) {
 						regionPixels.Insert(coord);
 
-						// Take some pixels inside the region in order to have a lot of points to fit the plane
-						if (++count % 10 == 0 && depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.08) {
+						if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.1 && std::abs(mean[0] - depthData.depthMap(coord)) < outlierTh) {
 							const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
-							debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
+							//debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
 							leastSquarePointSamples.push_back(K::Point_3(point.x, point.y, point.z));
-						}
-
-						// Take the pixels at the borders of the region
-						for (int wr = y - hwsize; wr <= y + hwsize; wr++) {
-							for (int wc = x - hwsize; wc <= x + hwsize; wc++) {
-								const ImageRef& c = ImageRef(wc, wr);
-								if (depthData.labels.isInsideWithBorder(c, hwsize)) {
-									if (depthData.labels(c) == 0 && depthData.depthMap(c) != 0 && depthData.confMap(c) < 0.02) {
-										
-										const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(c.x, c.y, depthData.depthMap(c))));
-										debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(c) << std::endl;
-										leastSquarePointSamples.push_back(K::Point_3(point.x, point.y, point.z));
-									}
-								}
-							}
 						}
 					}	
 				}
 			}
 
-			debug.close();
+			//debug.close();
 
 			// Least squares fit
 			K::Plane_3 leastSquarePlane;

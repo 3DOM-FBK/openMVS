@@ -176,7 +176,7 @@ struct MVS_API DepthData {
 	DepthMap depthMap; // depth-map
 	NormalMap normalMap; // normal-map in camera space
 	ConfidenceMap confMap; // confidence-map
-	Image16U labels;
+	Image8U labels;
 	float dMin, dMax; // global depth range for this image
 	unsigned references; // how many times this depth-map is referenced (on 0 can be safely unloaded)
 	CriticalSection cs; // used to count references
