@@ -40,6 +40,8 @@
 
 #include <CGAL/remove_outliers.h>
 #include <CGAL/compute_average_spacing.h>
+#include <CGAL/jet_smooth_point_set.h>
+
 #include <fstream>
 using namespace MVS;
 
@@ -639,7 +641,7 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		#endif
 	}
 
-	GenerateDepthPrior(depthData);
+	GenerateDepthPrior(depthData, coords);
 
 	// run propagation and random refinement cycles on the reference data
 #if 1
@@ -706,13 +708,14 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 	return true;
 } // EstimateDepthMap
 /*----------------------------------------------------------------*/
-bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
-
-	typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;	
-	typedef CGAL::Simple_cartesian<Kernel::FT> K;
+bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::MapRefArr& coords)
+{
+	typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
+	typedef Kernel::Point_3 CGALPoint;
+	typedef Kernel::Plane_3 CGALPlane;
 
 	std::cout << "Loading Label Mask Image: " << (*depthData.GetView().pImageData).maskName << std::endl;
-	
+
 	if (depthData.labels.Load((*depthData.GetView().pImageData).maskName)) {
 
 		if (depthData.labels.size() != depthData.GetView().image.size())
@@ -727,11 +730,9 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 
 		if (!depthData.labels.empty()) {
 
-			ImageRefArr regionPixels; // pixels of the region planar area 
+			ImageRefArr regionPixels; // pixels of the region planar area 			
 
-			//std::ofstream debug(ComposeDepthFilePath(depthData.GetView().GetID(), "region.txt").c_str());
-
-			std::vector<K::Point_3> leastSquarePointSamples;
+			std::vector<CGALPoint> leastSquarePointSamples;
 
 			int count = 0;
 
@@ -740,30 +741,43 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 			cv::meanStdDev(depthData.depthMap, mean, stddev, depthData.labels);
 			float outlierTh = std::abs(mean[0] - stddev[0] * 3.5);
 
-			for (int y=0; y<depthData.labels.size().height; ++y) {
-				for (int x=0; x<depthData.labels.size().width; ++x) {				
-					const ImageRef& coord = ImageRef(x, y);
-					depthMap(coord) = 0;
-					normalMap(coord) = Normal::ZERO;
-					int hwsize = 5;
-				
-					if (depthData.labels(coord) == 255) {
-						regionPixels.Insert(coord);
+			std::ofstream debug(ComposeDepthFilePath(depthData.GetView().GetID(), "region_before.txt").c_str());
 
-						if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.1 && std::abs(mean[0] - depthData.depthMap(coord)) < outlierTh) {
-							const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
-							//debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
-							leastSquarePointSamples.push_back(K::Point_3(point.x, point.y, point.z));
-						}
-					}	
+			int idx = -1;
+			while (++idx < coords.GetSize())
+			{
+				const ImageRef& coord = coords[idx];
+				depthMap(coord) = 0;
+				normalMap(coord) = Normal::ZERO;
+				int hwsize = 5;
+
+				if (depthData.labels(coord) == 255) {
+					regionPixels.Insert(coord);
+
+					if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.1 && std::abs(mean[0] - depthData.depthMap(coord)) < outlierTh) {
+						const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
+						debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
+						leastSquarePointSamples.push_back(CGALPoint(point.x, point.y, point.z));
+					}
 				}
 			}
 
-			//debug.close();
+			debug.close();
+
+			// Smoothing.
+			const unsigned int nb_neighbors = 24; // default is 24 for real-life point sets
+			CGAL::jet_smooth_point_set<CGAL::Sequential_tag>(leastSquarePointSamples, nb_neighbors);			
+
+			std::ofstream smooth(ComposeDepthFilePath(depthData.GetView().GetID(), "region_after.txt").c_str());
+			for (int i = 0; i < leastSquarePointSamples.size(); i++)
+			{
+				smooth << leastSquarePointSamples[i].x() << " " << leastSquarePointSamples[i].y() << " " << leastSquarePointSamples[i].z() << std::endl;
+			}
+			smooth.close();
 
 			// Least squares fit
-			K::Plane_3 leastSquarePlane;
-			K::Point_3 centroid(0, 0, 0);
+			CGALPlane leastSquarePlane;
+			CGALPoint centroid(0, 0, 0);
 
 			// fit plane to whole points
 			const double quality = CGAL::linear_least_squares_fitting_3(leastSquarePointSamples.begin(), leastSquarePointSamples.end(), leastSquarePlane, centroid, CGAL::Dimension_tag<0>());
@@ -776,7 +790,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 			const Point3d origin(depthData.images.First().camera.C.x, depthData.images.First().camera.C.y, depthData.images.First().camera.C.z); //camera center
 
 			// Iterate through region pixels and do the ray tracing
-			int idx = -1;
+			idx = -1;
 			while (++idx < regionPixels.GetSize()) {
 				const ImageRef& coord = regionPixels[idx];
 
@@ -804,6 +818,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData) {
 
 	return true;
 }
+
 // filter out small depth segments from the given depth map
 bool DepthMapsData::RemoveSmallSegments(DepthData& depthData)
 {
