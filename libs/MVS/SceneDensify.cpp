@@ -40,7 +40,9 @@
 
 #include <CGAL/remove_outliers.h>
 #include <CGAL/compute_average_spacing.h>
-#include <CGAL/jet_smooth_point_set.h>
+#include <CGAL/Shape_detection/Efficient_RANSAC.h>
+#include <CGAL/ch_graham_andrew.h>
+#include <CGAL/Polygon_2_algorithms.h>
 
 #include <fstream>
 using namespace MVS;
@@ -641,11 +643,11 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		#endif
 	}
 
-	GenerateDepthPrior(depthData, coords);
+	GenerateDepthPrior(depthData, coords);	
 
 	// run propagation and random refinement cycles on the reference data
 #if 1
-	for (unsigned iter = 4; iter < 8; ++iter) {
+	for (unsigned iter = 4; iter < 6; ++iter) {
 		// create working threads
 		idxPixel = -1;
 		ASSERT(estimators.IsEmpty());
@@ -711,8 +713,21 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::MapRefArr& coords)
 {
 	typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
+	typedef Kernel::Point_2 CGALPoint2;
 	typedef Kernel::Point_3 CGALPoint;
 	typedef Kernel::Plane_3 CGALPlane;
+	typedef Kernel::Vector_3 CGALNormal;
+	typedef std::pair<CGALPoint, CGALNormal> CGALPointWithNormal;
+
+	typedef CGAL::Shape_detection::Efficient_RANSAC_traits<
+		Kernel, 
+		std::vector<CGALPointWithNormal>, 
+		CGAL::First_of_pair_property_map<CGALPointWithNormal>, 
+		CGAL::Second_of_pair_property_map<CGALPointWithNormal>> Traits;
+
+	typedef CGAL::Shape_detection::Efficient_RANSAC<Traits> Efficient_ransac;
+
+	typedef CGAL::Shape_detection::Plane<Traits> CGALRansacPlane;
 
 	std::cout << "Loading Label Mask Image: " << (*depthData.GetView().pImageData).maskName << std::endl;
 
@@ -732,16 +747,14 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 
 			ImageRefArr regionPixels; // pixels of the region planar area 			
 
-			std::vector<CGALPoint> leastSquarePointSamples;
-
-			int count = 0;
+			std::vector<CGALPointWithNormal> ransacPointSamples;
 
 			cv::Scalar mean, stddev;
 
 			cv::meanStdDev(depthData.depthMap, mean, stddev, depthData.labels);
 			float outlierTh = std::abs(mean[0] - stddev[0] * 3.5);
-
-			std::ofstream debug(ComposeDepthFilePath(depthData.GetView().GetID(), "region_before.txt").c_str());
+			
+			std::ofstream regionA(ComposeDepthFilePath(depthData.GetView().GetID(), "region_a.txt").c_str());
 
 			int idx = -1;
 			while (++idx < coords.GetSize())
@@ -749,60 +762,186 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				const ImageRef& coord = coords[idx];
 				depthMap(coord) = 0;
 				normalMap(coord) = Normal::ZERO;
-				int hwsize = 5;
 
 				if (depthData.labels(coord) == 255) {
 					regionPixels.Insert(coord);
 
-					if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.1 && std::abs(mean[0] - depthData.depthMap(coord)) < outlierTh) {
+					if (depthData.depthMap(coord) != 0) {
 						const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
-						debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
-						leastSquarePointSamples.push_back(CGALPoint(point.x, point.y, point.z));
+						//debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
+						regionA << point.x << " " << point.y << " " << point.z << std::endl;
+						
+						CGALNormal normal(depthData.normalMap(coord).x, depthData.normalMap(coord).y, depthData.normalMap(coord).z);
+						ransacPointSamples.push_back(CGALPointWithNormal(CGALPoint(point.x, point.y, point.z), normal));
 					}
+
+					//depthData.confMap(coord) = 2.0f;
 				}
 			}
 
-			debug.close();
+			regionA.close();
 
-			// Smoothing.
-			const unsigned int nb_neighbors = 24; // default is 24 for real-life point sets
-			CGAL::jet_smooth_point_set<CGAL::Sequential_tag>(leastSquarePointSamples, nb_neighbors);			
+			// The Identity_property_map property map can be omitted here as it is the default value.
+			const int nb_neighbors = 24; // considers 24 nearest neighbor points
+			// Estimate scale of the point set with average spacing
+			const double average_spacing = CGAL::compute_average_spacing<CGAL::Sequential_tag>(ransacPointSamples, nb_neighbors, CGAL::parameters::point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>()));
 
-			std::ofstream smooth(ComposeDepthFilePath(depthData.GetView().GetID(), "region_after.txt").c_str());
-			for (int i = 0; i < leastSquarePointSamples.size(); i++)
+			ransacPointSamples.erase(CGAL::remove_outliers
+			(ransacPointSamples,
+				nb_neighbors,
+				CGAL::parameters::threshold_percent(20.0). // Minimum percentage to remove
+				threshold_distance(average_spacing).
+				point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>())), // No distance threshold (can be omitted)
+				ransacPointSamples.end());
+
+			std::ofstream regionB(ComposeDepthFilePath(depthData.GetView().GetID(), "region_b.txt").c_str());
+
+			for (int i = 0; i < ransacPointSamples.size(); i++)
 			{
-				smooth << leastSquarePointSamples[i].x() << " " << leastSquarePointSamples[i].y() << " " << leastSquarePointSamples[i].z() << std::endl;
+				regionB << ransacPointSamples[i].first.x() << " " << ransacPointSamples[i].first.y() << " " << ransacPointSamples[i].first.z() << std::endl;
 			}
-			smooth.close();
 
-			// Least squares fit
-			CGALPlane leastSquarePlane;
-			CGALPoint centroid(0, 0, 0);
+			regionB.close();
 
-			// fit plane to whole points
-			const double quality = CGAL::linear_least_squares_fitting_3(leastSquarePointSamples.begin(), leastSquarePointSamples.end(), leastSquarePlane, centroid, CGAL::Dimension_tag<0>());
+			// Instantiate shape detection engine.
+			Efficient_ransac ransac;
 
-			Planed finalPlane(
-				Eigen::Vector3d(leastSquarePlane.orthogonal_vector().x(), leastSquarePlane.orthogonal_vector().y(), leastSquarePlane.orthogonal_vector().z()),
-				Point3d(centroid.x(), centroid.y(), centroid.z())
-			);
+			// Provide input data.
+			ransac.set_input(ransacPointSamples);
 
-			const Point3d origin(depthData.images.First().camera.C.x, depthData.images.First().camera.C.y, depthData.images.First().camera.C.z); //camera center
+			// Register planar shapes via template method.
+			ransac.add_shape_factory<CGALRansacPlane>();
+
+			Efficient_ransac::Parameters parameters;
+			// Set probability to miss the largest primitive at each iteration.
+			parameters.probability = 0.01;
+			// Detect shapes with at least 200 points.
+			parameters.min_points = 6000; //ransac_point_samples.size()/20;
+			// Set maximum Euclidean distance between a point and a shape.
+			parameters.epsilon = 0.011; //0.004
+			// Set maximum Euclidean distance between points to be clustered.
+			parameters.cluster_epsilon = 0.022; //0.007
+			// Set maximum normal deviation.
+			//0.9 < dot(surface_normal, point_normal);
+			parameters.normal_threshold = 0.25; // try 0.8
+
+			// Detect registered shapes with default parameters.
+			ransac.detect(parameters);
+			// Print number of detected shapes.
+			std::cout << ransac.shapes().end() - ransac.shapes().begin() << " shapes detected." << std::endl;
+
+			Efficient_ransac::Shape_range shapes = ransac.shapes();
+
+			Efficient_ransac::Shape_range::iterator it = shapes.begin();
+			
+			std::ofstream filter(ComposeDepthFilePath(depthData.GetView().GetID(), "shapes.txt").c_str());
+
+			int planeIndex = 0;
+
+			std::vector<std::pair<Planed, std::pair<Point2i, Point2i>>> planes;
+			
+			while (it != shapes.end())
+			{
+				std::vector<CGALPoint> points;
+
+				Point2i min(std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+				Point2i max(-std::numeric_limits<int>::max(), -std::numeric_limits<int>::max());
+
+				for (
+					std::vector<std::size_t>::const_iterator index = (*it)->indices_of_assigned_points().begin();
+					index != (*it)->indices_of_assigned_points().end(); index++
+					)
+				{
+					filter << ransacPointSamples[(*index)].first.x() << " " << ransacPointSamples[(*index)].first.y() << " " << ransacPointSamples[(*index)].first.z() << " " << planeIndex << std::endl;
+					points.push_back(ransacPointSamples[(*index)].first);
+
+					Point2 imagePoint = depthData.images.First().camera.TransformPointW2I(Point3(ransacPointSamples[(*index)].first.x(), ransacPointSamples[(*index)].first.y(), ransacPointSamples[(*index)].first.z()));
+
+					if (imagePoint.x < min.x) 
+					{
+						min.x = imagePoint.x;
+					}
+					if (imagePoint.x > max.x)
+					{
+						max.x = imagePoint.x;
+					}
+					if (imagePoint.y < min.y)
+					{
+						min.y = imagePoint.y;
+					}
+					if (imagePoint.y > max.y)
+					{
+						max.y = imagePoint.y;
+					}
+				}
+
+				//std::vector<CGALPoint2> out;
+				//CGAL::ch_graham_andrew(points.begin(), points.end(), out);
+
+				//CGAL::bounded_side_2(pgn_begin, pgn_end, pt, traits)
+
+				CGALRansacPlane* shape = dynamic_cast<CGALRansacPlane*>(it->get());
+				CGALPlane plane = static_cast<Kernel::Plane_3>(*shape);
+				CGALPoint center = centroid(points.begin(), points.end());
+
+				Planed finalPlane(Eigen::Vector3d(plane.orthogonal_vector().x(), plane.orthogonal_vector().y(), plane.orthogonal_vector().z()), (Point3d(center.x(), center.y(), center.z())));
+
+				std::pair<Planed, std::pair<Point2i, Point2i>> planeAndBBox(finalPlane, std::pair<Point2i, Point2i>(min, max));
+
+				planes.push_back(planeAndBBox);
+
+				planeIndex++;
+				it++;				
+			}
+
+			filter.close();
+			
+			Point3d origin(depthData.images.First().camera.C.x, depthData.images.First().camera.C.y, depthData.images.First().camera.C.z);
+
+			std::ofstream segmentation(ComposeDepthFilePath(depthData.GetView().GetID(), "segmentation.txt").c_str());
 
 			// Iterate through region pixels and do the ray tracing
 			idx = -1;
-			while (++idx < regionPixels.GetSize()) {
+			while (++idx < regionPixels.GetSize()) 
+			{
 				const ImageRef& coord = regionPixels[idx];
 
 				Point3d grid(depthData.images.First().camera.TransformPointI2W(Point3(coord.x, coord.y, 1)));
+
+				Point3d test(depthData.images.First().camera.TransformPointI2W(Point3(coord.x, coord.y, depthData.depthMap(coord))));
+
+				int planeId = 0;
+				float minDistance = std::numeric_limits<float>::max();
+
+				for (int i = 0; i < planes.size(); i++)
+				{
+					// coord.x >= bbox.min.x && coord.x <= bbox.max.x && coord.y >= bbox.min.y && coord.y <= bbox.max.y 
+					bool insideBoundingBox = coord.x >= planes[i].second.first.x && coord.x <= planes[i].second.second.x && coord.y >= planes[i].second.first.y && coord.y <= planes[i].second.second.y;
+
+					if (insideBoundingBox)
+					{
+						float distance = planes[i].first.DistanceAbs(test);
+
+						if (distance < minDistance)
+						{
+							minDistance = distance;
+							planeId = i;
+						}
+					}
+				}				
+
 				Point3d direction = grid - origin;
 
 				const Ray3d ray(origin, direction);
-				const Point3d intersection(ray.Intersects(finalPlane));
+				const Point3d intersection(ray.Intersects(planes[planeId].first));
 
 				depthMap(coord) = depthData.images.First().camera.TransformPointW2I3(intersection).z;
-				normalMap(coord) = Normal(finalPlane.m_vN.x(), finalPlane.m_vN.y(), finalPlane.m_vN.z());
+				normalMap(coord) = Normal(planes[planeId].first.m_vN.x(), planes[planeId].first.m_vN.y(), planes[planeId].first.m_vN.z());
+
+				segmentation << test.x << " " << test.y << " " << test.z << " " << planeId << std::endl;
 			}
+
+			segmentation.close();
 
 #if 1 && TD_VERBOSE != TD_VERBOSE_OFF
 			// save intermediate depth map as image
