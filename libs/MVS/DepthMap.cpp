@@ -442,8 +442,12 @@ bool DepthEstimator::FillPixelPatch()
 	}
 	normSq0 = w.normSq0;
 	#endif
-	if (normSq0 < thMagnitudeSq) // TODO - check only if we don't have priors
-		return false;
+
+	if (image0.depthMapPrior.empty() || image0.depthMapPrior(x0) == 0) // If we can trust the priors return all the pixels
+	{
+		if (normSq0 < thMagnitudeSq)
+			return false;
+	}
 	reinterpret_cast<Point3&>(X0) = image0.camera.TransformPointI2C(Cast<REAL>(x0));
 	return true;
 }
@@ -519,25 +523,21 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 	}
 	#endif
 	
-	// Hardcoded for now, will be specified by parameter
 	float fSemanticConsistencyMul = 0.1;
+
+	// Hardcoded for now, will be specified by parameter
 	if(!image0.depthMapPrior.empty())
 	{		
 		if (image0.depthMapPrior(x0) != 0)
 		{						
-			/*if (depth > image0.depthMapPrior(x0))
+			Depth depthDifference = DepthSimilarity(depth, image0.depthMapPrior(x0));
+			
+			/*if (depth < Depth(image0.depthMapPrior(x0)))
 			{
-				Depth DepthDiff = DepthSimilarity(depth, image0.depthMapPrior(x0));
-				score = score * fSemanticConsistencyMul + (exp(DepthDiff) - 1.f);
-			}
-
-			if (depth < Depth(image0.depthMapPrior(x0)))
-			{
-				Depth DepthDiff = DepthSimilarity(image0.depthMapPrior(x0), depth);
-				score = score * fSemanticConsistencyMul + (exp(DepthDiff) - 1.f);
-
+				depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth);
 			}*/
-			score = score * (1 - exp(-normSq0)) + 0.2 * (1 - exp(-SQUARE(DepthSimilarity(depth, image0.depthMapPrior(x0))) / (2 * 0.003)));
+			
+			score = score * (1.f - exp(-normSq0 / (2 * 0.002))) + 0.1 * (1.f - exp(-pow(depthDifference, 2) / (2 * 0.003)));
 		}			
 	}	
 
