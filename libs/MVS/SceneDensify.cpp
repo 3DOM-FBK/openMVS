@@ -643,41 +643,44 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		#endif
 	}
 
-	GenerateDepthPrior(depthData, coords);	
+	if (OPTDENSE::nUseSemantic)
+	{
+		GenerateDepthPrior(depthData, coords);
 
-	// run propagation and random refinement cycles on the reference data
+		// run propagation and random refinement cycles on the reference data
 #if 1
-	for (unsigned iter = 4; iter < 6; ++iter) {
-		// create working threads
-		idxPixel = -1;
-		ASSERT(estimators.IsEmpty());
-		while (estimators.GetSize() < nMaxThreads)
-			estimators.AddConstruct(iter, depthData, idxPixel,
-				#if DENSE_NCC == DENSE_NCC_WEIGHTED
-				weightMap0,
-				#else
-				imageSum0,
-				#endif
-				coords);
-		ASSERT(estimators.GetSize() == threads.GetSize() + 1);
-		FOREACH(i, threads)
-			threads[i].start(EstimateDepthMapTmp, &estimators[i]);
-		EstimateDepthMapTmp(&estimators.Last());
-		// wait for the working threads to close
-		FOREACHPTR(pThread, threads)
-			pThread->join();
-		estimators.Release();
-		#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
-		// save intermediate depth map as image
-		if (g_nVerbosityLevel > 4) {
-			const String path(ComposeDepthFilePath(image.GetID(), "iter") + String::ToString(iter));
-			ExportDepthMap(path + ".png", depthData.depthMap);
-			ExportNormalMap(path + ".normal.png", depthData.normalMap);
-			ExportPointCloud(path + ".ply", *depthData.images.First().pImageData, depthData.depthMap, depthData.normalMap);
-		}
-		#endif
-	}
+		for (unsigned iter = 4; iter < 6; ++iter) {
+			// create working threads
+			idxPixel = -1;
+			ASSERT(estimators.IsEmpty());
+			while (estimators.GetSize() < nMaxThreads)
+				estimators.AddConstruct(iter, depthData, idxPixel,
+#if DENSE_NCC == DENSE_NCC_WEIGHTED
+					weightMap0,
+#else
+					imageSum0,
 #endif
+					coords);
+			ASSERT(estimators.GetSize() == threads.GetSize() + 1);
+			FOREACH(i, threads)
+				threads[i].start(EstimateDepthMapTmp, &estimators[i]);
+			EstimateDepthMapTmp(&estimators.Last());
+			// wait for the working threads to close
+			FOREACHPTR(pThread, threads)
+				pThread->join();
+			estimators.Release();
+#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
+			// save intermediate depth map as image
+			if (g_nVerbosityLevel > 4) {
+				const String path(ComposeDepthFilePath(image.GetID(), "iter") + String::ToString(iter));
+				ExportDepthMap(path + ".png", depthData.depthMap);
+				ExportNormalMap(path + ".normal.png", depthData.normalMap);
+				ExportPointCloud(path + ".ply", *depthData.images.First().pImageData, depthData.depthMap, depthData.normalMap);
+			}
+#endif
+		}
+#endif
+	}
 
 	// remove all estimates with too big score and invert confidence map
 	{

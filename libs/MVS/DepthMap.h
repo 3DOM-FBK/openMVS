@@ -114,6 +114,7 @@ extern int nOptimizerMaxIters;
 extern unsigned nSpeckleSize;
 extern unsigned nIpolGapSize;
 extern String nIgnoreMaskLabel;
+extern bool nUseSemantic;
 extern unsigned nOptimize;
 extern unsigned nEstimateColors;
 extern unsigned nEstimateNormals;
