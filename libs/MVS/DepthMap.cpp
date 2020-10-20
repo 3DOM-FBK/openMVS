@@ -398,6 +398,7 @@ DepthEstimator::DepthEstimator(
 	ASSERT(_depthData0.images.size() >= 1);
 }
 
+
 // center a patch of given size on the segment
 bool DepthEstimator::PreparePixelPatch(const ImageRef& x)
 {
@@ -442,8 +443,12 @@ bool DepthEstimator::FillPixelPatch()
 	}
 	normSq0 = w.normSq0;
 	#endif
-	if (normSq0 < thMagnitudeSq)
-		return false;
+	
+	if (image0.depthMapPrior.empty() || image0.depthMapPrior(x0) == 0)
+	{
+		if (normSq0 < thMagnitudeSq)
+			return false;
+	}
 	reinterpret_cast<Point3&>(X0) = image0.camera.TransformPointI2C(Cast<REAL>(x0));
 	return true;
 }
@@ -516,20 +521,148 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 		#endif
 		const float factorNormal(DENSE_EXP(SQUARE(ACOS(ComputeAngle<float,float>(normal.ptr(), neighbor.normal.ptr()))) * smoothSigmaNormal));
 		score *= (1.f - smoothBonusDepth * factorDepth) * (1.f - smoothBonusNormal * factorNormal);
+		//std::cout << "score: "  << score << std::endl;
 	}
 	#endif
+
+	//std::cout << "normSq0: "  << normSq0 << std::endl;
 	
+	float fSemanticConsistencyMul = 10;
 	if (!image0.depthMapPrior.empty())
 	{		
 		if (image0.depthMapPrior(x0) != 0)
 		{
-			//float factor = ABS(image0.depthMapPrior(x0) - depth) / image0.depthMapPrior(x0);
-			//const float factorDepth(DENSE_EXP(SQUARE((depth - image0.depthMapPrior(x0)) / depth) * smoothSigmaDepth));
-			//const float factorNormal(DENSE_EXP(SQUARE(ACOS(ComputeAngle<float, float>(normal.ptr(), image0.normalMapPrior(x0).ptr()))) * smoothSigmaNormal));
-			//std::cout << x0 << ": " << image0.depthMapPrior(x0) << " factor: " << factor << std::endl;
-			score *= 0.2;
+			Depth DepthDiff = 0;
+			if (depth > image0.depthMapPrior(x0))
+			{
+
+				Depth DepthDiff = DepthSimilarity(depth, image0.depthMapPrior(x0));
+				//score = score*fSemanticConsistencyMul + (exp(DepthDiff)-1.f); // BEST TILL NOW
+				//score = score + (1 / fSemanticConsistencyMul) * (exp(DepthDiff)-1.f); // cDc 1 -- does not give satisfying results -- score is again too big
+				//score = score*0.3f + 0.7f * ((1.f-exp(-pow(DepthDiff,2)))/(2*0.001))*(1-normSq0); // cDc 2 -- does not give satisfying results -- score is again too big --adjusted is ok
+				//score = score*0.3f + 0.7f * ((1.f-exp(-pow(DepthDiff,2)))/(2*0.003)); // cDc 2 -- does not give satisfying results -- score is again too big --adjusted is ok
+				score = score*(1.f-exp(-normSq0/(2*0.001))) + 0.1* (1.f-exp(-pow(DepthDiff,2)/(2*0.003)));
+				//score = score;
+				//score = score + 0.2*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.003)));
+
+
+				//score = score + (log10(pow(DepthDiff,2))+1.f); 
+				//score = score + 1 / ( (exp(DepthDiff)-1.f)); 
+				//std::cout << "DepthDiff: "  << DepthDiff << std::endl;
+				//std::cout << "score: "  << score << std::endl;
+				//score = score + exp(DepthDiff)-1;
+				//score = 0.05 * exp(DepthDiff);
+				//score = score +  log(exp(-(DepthDiff*DepthDiff)/0.5)*exp(-0.000025/2));
+				//score = score*0.3f + 0.7f * (1.f-exp(-pow(DepthDiff,2)/(2*0.003))); // cDc 2 adjusted -- OK
+
+				//score = score - 0.4*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.02)));
+					//if (score  <= 0){
+						//score = 0.0001;
+					//}
+
+				//std::cout << "score: "  << score << std::endl;
+				/*if (score <= 0.1){
+					score = score;
+				}
+
+				if (score <= 0.2 && score > 0.1){
+					//score = score + 0.1 * (1.f - exp(-DepthDiff*DepthDiff / (2 * 0.003)));
+					score = score -  0.8*(1- exp(-(DepthDiff*DepthDiff)/(2*0.03))*exp(-(0.005))*exp(-(score)));
+					//score = score;	
+				}
+
+				if (score > 0.2){
+					//score = score;
+					//std::cout << "DepthDiff: "  << DepthDiff << std::endl;
+					//score = score + 0.005 * (1.f - exp(DepthDiff*DepthDiff / (2 * 0.07)));
+					//score = score + 0.1 * (1 - exp(DepthDiff*DepthDiff/0.25));
+					//score = score * 0.3f + 0.7f * ((1.f - exp(-pow(DepthDiff, 2))) / (2 * 0.001));
+					//score = score +  1.2*log10(exp(-(DepthDiff*DepthDiff)/2)*exp(-(0.005*0.005))*exp(-(score)));
+					score = score - 0.2*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.03)));
+					//if (score < 0){
+
+						//score = (rand() % (0.1 - 0.0001 + 1)) + 0.0001;
+						//score = 0.0001;
+					//}
+					//std::cout << "score: " << score << std::endl;
+				}*/	
+			
+			}
+
+
+			if (depth < Depth(image0.depthMapPrior(x0)))
+			{
+
+				Depth DepthDiff = DepthSimilarity(image0.depthMapPrior(x0), depth);
+				//score = score*fSemanticConsistencyMul + (exp(DepthDiff)-1.f); // BEST TILL NOW
+				//score = score + (1 / fSemanticConsistencyMul) * (exp(DepthDiff)-1.f); // cDc 1
+				//score = score*0.3f + 0.7f * ((1.f-exp(-pow(DepthDiff,2)))/(2*0.001))*(1-normSq0); // cDc 2 adjusted
+				//score = score*0.3f + 0.7f * (1.f-exp(-pow(DepthDiff,2)/(2*0.003))); // cDc 2 adjusted -- OK
+				//score = score + 0.2* (1.f-exp(-pow(DepthDiff,2)/(2*0.003)));
+				//score = score;
+
+				score = score*(1.f-exp(-normSq0/(2*0.001))) + 0.1* (1.f-exp(-pow(DepthDiff,2)/(2*0.003)));
+
+				//score = score + 0.2*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.003)));
+
+
+				//score = score + (log10(pow(DepthDiff,2))+1.f); 
+				//score = score + 1 / ( (exp(DepthDiff)-1.f));
+
+				//std::cout << "DepthDiff: "  << DepthDiff << std::endl;
+				//std::cout << "score: "  << score << std::endl; 
+				
+				//score = score -(exp(DepthDiff)-1.f);
+				//score = score +  log(exp(-(DepthDiff*DepthDiff)/0.5)*exp(-0.000025/2));
+				//score = score - score*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.02)));
+
+				/*if (score <= 0.1){
+					score = score;
+				}
+
+				if (score <= 0.2 && score > 0.1){
+					//score = score + 0.1 * (1.f - exp(-DepthDiff*DepthDiff / (2 * 0.003)));
+					score = score - 0.8*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.03))*exp(-(0.005))*exp(-(score)));
+					//score = score;
+					std::cout << "score: " << score << std::endl;
+				}
+
+				if (score > 0.2){
+					//score = score + 0.005  * (1.f - exp(DepthDiff*DepthDiff / (2 * 0.07)));
+					//score = score + 0.1 * (1 - exp(DepthDiff*DepthDiff/0.25));
+					//score = score +  log10(exp(-(DepthDiff*DepthDiff)/2));
+					//score = score +  1.2*log10(exp(-(DepthDiff*DepthDiff)/2)*exp(-(0.005*0.005))*exp(-(score)));
+					score = score - 0.2*(1 - exp(-(DepthDiff*DepthDiff)/(2*0.03)));
+					//if (score < 0){
+						//score = 0.001;
+					//}
+					//score = score * 0.3f + 0.7f * ((1.f - exp(-pow(DepthDiff, 2))) / (2 * 0.001));
+					
+				}*/
+				
+			}
+
+
+			//if (IsDepthSimilar(depth, image0.depthMapPrior(x0), Depth(0.001f))) {
+
+				//score = score * DepthSimilarity(depth, image0.depthMapPrior(x0));
+				//score = score * (1.f - DepthSimilarity(depth, image0.depthMapPrior(x0)));
+				//score = 0.05;
+				//std::cout << "score: "  << score << std::endl;
+
+			//}
+
+			/*else
+			{
+				score = score;
+				//score = score * DepthSimilarity(depth, image0.depthMapPrior(x0));
+				//score = score * DepthSimilarity(depth, image0.depthMapPrior(x0));
+				//std::cout << "score: "  << score << std::endl;
+
+			}*/
 		}
 	}
+
 
 	ASSERT(ISFINITE(score));
 	return score;
@@ -727,10 +860,14 @@ void DepthEstimator::ProcessPixel(IDX idx)
 	float& conf = confMap0(x0);
 	Depth& depth = depthMap0(x0);
 	Normal& normal = normalMap0(x0);
+
+	Depth depthprior = image0.depthMapPrior(x0);
+	//Normal normalprior = image0.normalMapPrior(x0);
+
 	const Normal viewDir(Cast<float>(reinterpret_cast<const Point3&>(X0)));
 	ASSERT(depth > 0 && normal.dot(viewDir) <= 0);
 	#if DENSE_REFINE == DENSE_REFINE_ITER
-	// check if any of the neighbor estimates are better then the current estimate
+	// check if any of the neighbor estimates are better than the current estimate spatial propagation
 	#if DENSE_SMOOTHNESS != DENSE_SMOOTHNESS_NA
 	FOREACH(n, neighbors) {
 		const ImageRef& nx = neighbors[n];
@@ -738,7 +875,7 @@ void DepthEstimator::ProcessPixel(IDX idx)
 	for (NeighborData& neighbor: neighbors) {
 		const ImageRef& nx = neighbor.x;
 	#endif
-		if (confMap0(nx) >= OPTDENSE::fNCCThresholdKeep)
+		if ((confMap0(nx) >= OPTDENSE::fNCCThresholdKeep)) //&& !(!image0.depthMapPrior.empty() && image0.depthMapPrior(x0) != 0))
 			continue;
 		#if DENSE_SMOOTHNESS != DENSE_SMOOTHNESS_NA
 		NeighborEstimate& neighbor = neighborsClose[n];
@@ -755,8 +892,10 @@ void DepthEstimator::ProcessPixel(IDX idx)
 			conf = nconf;
 			depth = neighbor.depth;
 			normal = neighbor.normal;
-		}
+		}		
 	}
+	
+
 	// try random values around the current estimate in order to refine it
 	unsigned idxScaleRange(0);
 	RefineIters:

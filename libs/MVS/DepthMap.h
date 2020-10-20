@@ -151,6 +151,8 @@ struct MVS_API DepthData {
 		Image* pImageData; // image data
 		DepthMap depthMapPrior;
 		NormalMap normalMapPrior;
+		
+		
 
 		inline IIndex GetID() const {
 			return pImageData->ID;
