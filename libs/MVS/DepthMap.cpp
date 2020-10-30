@@ -524,21 +524,16 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 	}
 	#endif
 	
-	float fSemanticConsistencyMul = 0.1;
+	float fSemanticConsistencyMul = 0.01;
 
 	// Hardcoded for now, will be specified by parameter
 	if(!image0.depthMapPrior.empty())
 	{		
 		if (image0.depthMapPrior(x0) != 0)
 		{						
-			Depth depthDifference = DepthSimilarity(depth, image0.depthMapPrior(x0));
+			Depth depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth);
 			
-			/*if (depth < Depth(image0.depthMapPrior(x0)))
-			{
-				depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth);
-			}*/
-			
-			score = score * (1.f - exp(-normSq0 / (2 * 0.002))) + 0.1 * (1.f - exp(-pow(depthDifference, 2) / (2 * 0.003)));
+			score = score * (1.f - exp(-(normSq0) / (2 * pow(3, 2)))) + fSemanticConsistencyMul * (1.f - exp(-pow(depthDifference, 2) / (2 * pow(0.2, 2)))*exp(-(normSq0) / (2 * pow(3, 2))));
 		}			
 	}	
 
