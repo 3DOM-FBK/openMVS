@@ -757,7 +757,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			cv::meanStdDev(depthData.depthMap, mean, stddev, depthData.labels);
 			float outlierTh = std::abs(mean[0] - stddev[0] * 3.5);
 			
-			std::ofstream regionA(ComposeDepthFilePath(depthData.GetView().GetID(), "region_a.txt").c_str());
+			//std::ofstream regionA(ComposeDepthFilePath(depthData.GetView().GetID(), "region_a.txt").c_str());
 
 			int idx = -1;
 			while (++idx < coords.GetSize())
@@ -771,18 +771,16 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 
 					if (depthData.depthMap(coord) != 0) {
 						const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
-						//debug << point.x << " " << point.y << " " << point.z << " " << depthData.confMap(coord) << std::endl;
-						regionA << point.x << " " << point.y << " " << point.z << std::endl;
+						
+						//regionA << point.x << " " << point.y << " " << point.z << std::endl;
 						
 						CGALNormal normal(depthData.normalMap(coord).x, depthData.normalMap(coord).y, depthData.normalMap(coord).z);
 						ransacPointSamples.push_back(CGALPointWithNormal(CGALPoint(point.x, point.y, point.z), normal));
 					}
-
-					//depthData.confMap(coord) = 2.0f;
 				}
 			}
 
-			regionA.close();
+			//regionA.close();
 
 			// The Identity_property_map property map can be omitted here as it is the default value.
 			const int nb_neighbors = 24; // considers 24 nearest neighbor points
@@ -792,19 +790,19 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			ransacPointSamples.erase(CGAL::remove_outliers
 			(ransacPointSamples,
 				nb_neighbors,
-				CGAL::parameters::threshold_percent(20.0). // Minimum percentage to remove
+				CGAL::parameters::threshold_percent(30.0). // Minimum percentage to remove
 				threshold_distance(average_spacing).
 				point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>())), // No distance threshold (can be omitted)
 				ransacPointSamples.end());
 
-			std::ofstream regionB(ComposeDepthFilePath(depthData.GetView().GetID(), "region_b.txt").c_str());
+			//std::ofstream regionB(ComposeDepthFilePath(depthData.GetView().GetID(), "region_b.txt").c_str());
 
 			for (int i = 0; i < ransacPointSamples.size(); i++)
 			{
-				regionB << ransacPointSamples[i].first.x() << " " << ransacPointSamples[i].first.y() << " " << ransacPointSamples[i].first.z() << std::endl;
+				//regionB << ransacPointSamples[i].first.x() << " " << ransacPointSamples[i].first.y() << " " << ransacPointSamples[i].first.z() << std::endl;
 			}
 
-			regionB.close();
+			//regionB.close();
 
 			// Instantiate shape detection engine.
 			Efficient_ransac ransac;
@@ -819,14 +817,14 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			// Set probability to miss the largest primitive at each iteration.
 			parameters.probability = 0.01;
 			// Detect shapes with at least 200 points.
-			parameters.min_points = ransacPointSamples.size() / 32;
+			parameters.min_points = ransacPointSamples.size() / 130;
 			// Set maximum Euclidean distance between a point and a shape.
-			parameters.epsilon = 0.011; // try something with average_spacing
+			parameters.epsilon = average_spacing * 1.5 / 2.0; // 0.011; // try something with average_spacing
 			// Set maximum Euclidean distance between points to be clustered.
-			parameters.cluster_epsilon = 0.022; // try something with average_spacing
+			parameters.cluster_epsilon = average_spacing * 1.5; // 0.022; // try something with average_spacing
 			// Set maximum normal deviation.
 			//0.9 < dot(surface_normal, point_normal);
-			parameters.normal_threshold = 0.25; // try 0.8
+			parameters.normal_threshold = 0.20; // try 0.8
 			// Detect registered shapes with default parameters.
 			ransac.detect(parameters);
 			// Print number of detected shapes.
@@ -836,7 +834,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 
 			Efficient_ransac::Shape_range::iterator it = shapes.begin();
 			
-			std::ofstream filter(ComposeDepthFilePath(depthData.GetView().GetID(), "shapes.txt").c_str());
+			//std::ofstream filter(ComposeDepthFilePath(depthData.GetView().GetID(), "shapes.txt").c_str());
 			
 			int planeIndex = 0;
 
@@ -852,7 +850,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 					index != (*it)->indices_of_assigned_points().end(); index++
 					)
 				{
-					filter << ransacPointSamples[(*index)].first.x() << " " << ransacPointSamples[(*index)].first.y() << " " << ransacPointSamples[(*index)].first.z() << " " << planeIndex << std::endl;
+					//filter << ransacPointSamples[(*index)].first.x() << " " << ransacPointSamples[(*index)].first.y() << " " << ransacPointSamples[(*index)].first.z() << " " << planeIndex << std::endl;
 					points.push_back(ransacPointSamples[(*index)].first);
 
 					Point2 imagePoint = depthData.images.First().camera.TransformPointW2I(Point3(ransacPointSamples[(*index)].first.x(), ransacPointSamples[(*index)].first.y(), ransacPointSamples[(*index)].first.z()));
@@ -877,11 +875,11 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				it++;				
 			}
 
-			filter.close();
+			//filter.close();
 			
 			Point3d origin(depthData.images.First().camera.C.x, depthData.images.First().camera.C.y, depthData.images.First().camera.C.z);
 
-			std::ofstream segmentation(ComposeDepthFilePath(depthData.GetView().GetID(), "segmentation.txt").c_str());
+			//std::ofstream segmentation(ComposeDepthFilePath(depthData.GetView().GetID(), "segmentation.txt").c_str());
 
 			// Iterate through region pixels and do the ray tracing
 			idx = -1;
@@ -924,11 +922,11 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 					depthMap(coord) = depthData.images.First().camera.TransformPointW2I3(intersection).z;
 					normalMap(coord) = Normal(planes[planeId].first.m_vN.x(), planes[planeId].first.m_vN.y(), planes[planeId].first.m_vN.z());
 
-					segmentation << test.x << " " << test.y << " " << test.z << " " << planeId << std::endl;
+					//segmentation << test.x << " " << test.y << " " << test.z << " " << planeId << std::endl;
 				}				
 			}
 
-			segmentation.close();
+			//segmentation.close();
 
 #if 1 && TD_VERBOSE != TD_VERBOSE_OFF
 			// save intermediate depth map as image
