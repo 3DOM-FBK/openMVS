@@ -50,6 +50,8 @@ String strMeshFileName;
 String strDenseConfigFileName;
 float fSampleMesh;
 int thFilterPointCloud;
+String strDepthMapETH3DFileName;
+String strDepthMapFileName;
 int nFusionMode;
 int nArchiveType;
 int nProcessPriority;
@@ -57,6 +59,22 @@ unsigned nMaxThreads;
 String strConfigFileName;
 boost::program_options::variables_map vm;
 } // namespace OPT
+
+bool ImportDepthDataETH3D(const String& fileName, const cv::Size& imageSize, DepthMap& depthMap)
+{
+	FILE * f = fopen(fileName, "rb");
+	if (f == NULL) {
+		DEBUG("error: opening file '%s' for reading depth-data", fileName.c_str());
+		return false;
+		
+	}
+
+	depthMap.create(imageSize.height, imageSize.width);
+	fread(depthMap.getData(), sizeof(float), depthMap.area(), f);
+	fclose(f);
+	depthMap.setTo(Depth(0), depthMap == std::numeric_limits<float>::infinity());
+	return true;
+}
 
 // initialize and parse the command line parameters
 bool Initialize(size_t argc, LPCTSTR* argv)
@@ -111,6 +129,8 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 		("sample-mesh", boost::program_options::value(&OPT::fSampleMesh)->default_value(0.f), "uniformly samples points on a mesh (0 - disabled, <0 - number of points, >0 - sample density per square unit)")
 		("filter-point-cloud", boost::program_options::value(&OPT::thFilterPointCloud)->default_value(0), "filter dense point-cloud based on visibility (0 - disabled)")
 		("fusion-mode", boost::program_options::value(&OPT::nFusionMode)->default_value(0), "depth map fusion mode (-2 - fuse disparity-maps, -1 - export disparity-maps only, 0 - depth-maps & fusion, 1 - export depth-maps only)")
+		("depth-map-eth3d-file", boost::program_options::value<std::string>(&OPT::strDepthMapETH3DFileName), "ETH3D file to convert.")
+		("depth-map-file", boost::program_options::value<std::string>(&OPT::strDepthMapFileName), "ETH3D file to convert.")
 		;
 
 	// hidden options, allowed both on command line and
@@ -227,6 +247,52 @@ int main(int argc, LPCTSTR* argv)
 	if (!Initialize(argc, argv))
 		return EXIT_FAILURE;
 
+	if (!OPT::strDepthMapETH3DFileName.empty()) {
+		// Import ETH3D
+		cv::Size size1(6048, 4032);
+		DepthMap depthMapETH;
+		ImportDepthDataETH3D(MAKE_PATH_SAFE(OPT::strDepthMapETH3DFileName), size1, depthMapETH);
+		
+		cv::Size size2(3200, 2100);
+		DepthMap depthMap;
+#if 0
+		ImportDepthDataETH3D(MAKE_PATH_SAFE(OPT::strDepthMapFileName), size2, depthMap);
+
+		// Import our
+#else
+		DepthData data;
+		data.Load(MAKE_PATH_SAFE(OPT::strDepthMapFileName));		
+		depthMap = data.depthMap;
+#endif
+		// Resize ETH
+		//cv::resize(depthMapETH, depthMapETH, data.depthMap.size(), 1, 1, cv::INTER_NEAREST);
+
+		cv::resize(depthMapETH, depthMapETH, depthMap.size(), 1, 1, cv::INTER_NEAREST);
+
+		float maxDepthETH = 0;
+		float minDepthETH = FLT_MAX;
+
+		cList<Depth, Depth, 0> depthsETH(0, depthMapETH.area());
+		for (int i = depthMapETH.area(); --i >= 0; ) {
+			const Depth depth = depthMapETH[i];
+			ASSERT(depth == 0 || depth > 0);
+			if (depth > 0)
+				depthsETH.Insert(depth);
+		}
+		if (!depthsETH.empty()) {
+			const std::pair<Depth, Depth> th(ComputeX84Threshold<Depth, Depth>(depthsETH.data(), depthsETH.size()));
+			const std::pair<Depth, Depth> mm(depthsETH.GetMinMax());
+			maxDepthETH = MINF(th.first + th.second, mm.second);
+			minDepthETH = MAXF(th.first - th.second, mm.first);
+		}
+
+		CompareDepthMaps(depthMap, depthMapETH, 0, 0.005);
+		ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapETH3DFileName) + ".png", depthMapETH);
+		//ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapFileName) + ".png", data.depthMap, minDepthETH, maxDepthETH);
+		ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapFileName) + ".png", depthMap, minDepthETH, maxDepthETH);
+		return EXIT_SUCCESS;
+	}
+
 	Scene scene(OPT::nMaxThreads);
 	if (OPT::fSampleMesh != 0) {
 		// sample input mesh and export the obtained point-cloud
@@ -245,7 +311,7 @@ int main(int argc, LPCTSTR* argv)
 	}
 	// load and estimate a dense point-cloud
 	if (!scene.Load(MAKE_PATH_SAFE(OPT::strInputFileName)))
-		return EXIT_FAILURE;
+		return EXIT_FAILURE;	
 	if (scene.pointcloud.IsEmpty()) {
 		VERBOSE("error: empty initial point-cloud");
 		return EXIT_FAILURE;

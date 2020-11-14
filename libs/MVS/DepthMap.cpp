@@ -1973,11 +1973,11 @@ void MVS::CompareDepthMaps(const DepthMap& depthMap, const DepthMap& depthMapGT,
 			const Depth& depth = depthMap(i,j);
 			const Depth& depthGT = depthMapGT(i,j);
 			if (depth != 0 && depthGT == 0) {
-				pix = Pixel8U::GREEN;
+				pix = Pixel8U::BLACK;
 				continue;
 			}
 			if (depth == 0 && depthGT != 0) {
-				pix = Pixel8U::BLUE;
+				pix = Pixel8U::BLACK;
 				continue;
 			}
 			const float error = errors[idxPixel++];
@@ -1985,18 +1985,32 @@ void MVS::CompareDepthMaps(const DepthMap& depthMap, const DepthMap& depthMapGT,
 				pix = Pixel8U::BLACK;
 				continue;
 			}
-			if (error > threshold) {
+			if (error > 0.01) {
 				pix = Pixel8U::RED;
 				++nErrorPixels;
 				continue;
 			}
+			if (error > 0.005) {
+				pix = Pixel8U::YELLOW;
+				++nErrorPixels;
+				continue;
+			}
+			if (error > 0.0025) {
+				pix = Pixel8U::GREEN;
+				++nErrorPixels;
+				continue;
+			}
+			pix = Pixel8U::BLUE;
+			continue;
 			const uint8_t gray((uint8_t)CLAMP((1.f-SAFEDIVIDE(ABS(error), threshold))*255.f, 0.f, 255.f));
 			pix = Pixel8U(gray, gray, gray);
 		}
 	}
+	std::cout << threshold << std::endl;
+
 	errorsVisual.Save(ComposeDepthFilePath(idxImage, "errors.png"));
 	#endif
-	VERBOSE("Depth-maps compared for image % 3u: %.4f PSNR; %g median %g mean %g stddev error; %u (%.2f%%%%) error %u (%.2f%%%%) missing %u (%.2f%%%%) extra pixels (%s)",
+	VERBOSE("Depth-maps compared for image % 3u:\n%.4f PSNR;\n%g median\n%g mean\n%g stddev error;\n%u (%.2f%%%%) error\n%u (%.2f%%%%) missing\n%u (%.2f%%%%) extra pixels (%s)",
 		idxImage,
 		fPSNR,
 		th.first, mean, stddev,
