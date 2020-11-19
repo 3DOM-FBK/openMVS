@@ -524,7 +524,7 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 	}
 	#endif
 	
-	float fSemanticConsistencyMul = 0.5;	
+	float fSemanticConsistencyMul = 0.1;	
 
 	// Hardcoded for now, will be specified by parameter
 	if(!image0.depthMapPrior.empty())
@@ -533,9 +533,9 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 		{						
 			Depth depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth); // 0 se sono motlo simili, 1 se sono distanti
 			
-			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(0.05f))); // Va a 1 se c'è poca texture a 0 se ce n'è molta
+			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(0.08f))); // Va a 1 se c'è poca texture a 0 se ce n'è molta
 
-			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(0.03f))); // Alzando sigma (da 0.01 a 0.03 ho transizione piu smooth) 1 se c'è molta similarity, 0 altrimenti
+			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(0.1f))); // Alzando sigma (da 0.01 a 0.03 ho transizione piu smooth) 1 se c'è molta similarity, 0 altrimenti
 
 			// Se c'è poca texture moltiplica per 0.qualcosa
 			// Se c'è poca depth similarity moltiplica per 0.9qualcosa
