@@ -119,7 +119,8 @@ bool Scene::LoadInterface(const String & fileName)
 #if 1
 		// Mask name for now is set as the image name _l
 		// Prepare label image
-		imageData.maskName = Util::getFilePath(image.name) + PATH_SEPARATOR + Util::getFileName(image.name) + "_l.png"; 
+		imageData.maskName = Util::getFilePath(image.name) + PATH_SEPARATOR + Util::getFileName(image.name) + "_l.png";
+		//imageData.maskName = Util::getLastDir(Util::getFilePath(imageData.name)) + Util::getFileName(imageData.name) + "_l.png";
 		Util::ensureUnifySlash(imageData.maskName);
 		imageData.maskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.maskName);
 #else

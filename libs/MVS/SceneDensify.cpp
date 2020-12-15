@@ -502,10 +502,7 @@ void* STCALL DepthMapsData::EndDepthMapTmp(void* arg)
 // In order to ensure some smoothness while locally estimating each pixel, a bonus is added to the NCC score if the estimate for this pixel is close to the estimates for the neighbor pixels.
 // Optionally, the occluded pixels can be detected by extending the described iterations to the target image and removing the estimates that do not have similar values in both views.
 bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
-{
-	std::cout << OPTDENSE::nOptimize << std::endl;
-	std::cout << OPTDENSE::nEstimationIters << std::endl;
-
+{	
 	TD_TIMER_STARTD();
 
 	// initialize depth and normal maps
@@ -736,7 +733,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 
 	typedef CGAL::Shape_detection::Plane<Traits> CGALRansacPlane;
 
-	std::cout << "Loading Label Mask Image: " << (*depthData.GetView().pImageData).maskName << std::endl;
+	std::cout << "\nLoading Label Mask Image: " << (*depthData.GetView().pImageData).maskName << std::endl;
 
 	if (depthData.labels.Load((*depthData.GetView().pImageData).maskName)) {
 
@@ -761,6 +758,8 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			cv::meanStdDev(depthData.depthMap, mean, stddev, depthData.labels);
 			float outlierTh = std::abs(mean[0] - stddev[0] * 3.5);
 			
+			std::ofstream stream(ComposeDepthFilePath(depthData.GetView().GetID(), "point.samples.txt").c_str());
+
 			int idx = -1;
 			while (++idx < coords.GetSize())
 			{
@@ -768,22 +767,28 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				depthMap(coord) = 0;
 				normalMap(coord) = Normal::ZERO;
 
-				if (depthData.labels(coord) == 255) {
+				if (depthData.labels(coord) == 255) 
+				{
 					regionPixels.Insert(coord);
 
-					if (depthData.depthMap(coord) != 0) 
+					if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.1)
 					{
 						const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
 						const Point3d N(depthData.images.First().camera.R.t() * Cast<REAL>(depthData.normalMap(coord))); // Convert normal to object space
 
 						CGALNormal normal(N.x, N.y, N.z);
 						ransacPointSamples.push_back(CGALPointWithNormal(CGALPoint(point.x, point.y, point.z), normal));
+
+						stream << point.x << " " << point.y << " " << point.z << " " << normal.x() << " " << normal.y() << " " << normal.z() << " " <<
+							depthData.confMap(coord) << std::endl;
 					}
 				}
 			}
 
+			stream.close();
+
 #if 1 && TD_VERBOSE != TD_VERBOSE_OFF
-			if (g_nVerbosityLevel > 5) {
+			/*if (g_nVerbosityLevel > 5) {
 				std::ofstream stream(ComposeDepthFilePath(depthData.GetView().GetID(), "point.samples.txt").c_str());
 
 				for (std::vector<CGALPointWithNormal>::iterator it = ransacPointSamples.begin(); it != ransacPointSamples.end(); it++)
@@ -792,7 +797,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				}
 
 				stream.close();
-			}
+			}*/
 #endif
 
 			const int nb_neighbors = 18; // considers 24 nearest neighbor points
@@ -800,13 +805,13 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			// Estimate scale of the point set with average spacing
 			const double average_spacing = CGAL::compute_average_spacing<CGAL::Parallel_tag>(ransacPointSamples, nb_neighbors, CGAL::parameters::point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>()));
 
-			ransacPointSamples.erase(CGAL::remove_outliers
-			(ransacPointSamples,
-				nb_neighbors,
-				CGAL::parameters::threshold_percent(20.0). // Minimum percentage to remove
-				threshold_distance(average_spacing).
-				point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>())), 
-				ransacPointSamples.end());
+			//ransacPointSamples.erase(CGAL::remove_outliers
+			//(ransacPointSamples,
+			//	nb_neighbors,
+			//	CGAL::parameters::threshold_percent(20.0). // Minimum percentage to remove
+			//	threshold_distance(average_spacing).
+			//	point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>())), 
+			//	ransacPointSamples.end());
 
 #if 1 && TD_VERBOSE != TD_VERBOSE_OFF
 			if (g_nVerbosityLevel > 5) {
@@ -834,18 +839,18 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			// Set probability to miss the largest primitive at each iteration.
 			parameters.probability = 0.01;
 			// Detect shapes with at least size / n points.
-			parameters.min_points = ransacPointSamples.size() / 50;
+			parameters.min_points = ransacPointSamples.size() / 12;
 			// Set maximum Euclidean distance between a point and a shape.
-			parameters.epsilon = average_spacing * 1.5;
+			parameters.epsilon = average_spacing * 2.5;
 			// Set maximum Euclidean distance between points to be clustered.
-			parameters.cluster_epsilon = average_spacing * 1.5 * 2.0; 
+			parameters.cluster_epsilon = average_spacing * 2.5 * 2.0; 
 			// Set maximum normal deviation (rad).
 			//0.9 < dot(surface_normal, point_normal);
-			parameters.normal_threshold = 0.25;
+			parameters.normal_threshold = 0.45;
 			// Detect registered shapes.
 			ransac.detect(parameters);
 			// Print number of detected shapes.
-			std::cout << ransac.shapes().end() - ransac.shapes().begin() << " shapes detected." << std::endl;
+			std::cout << ransac.shapes().end() - ransac.shapes().begin() << " shapes detected with at least " << parameters.min_points << " points." << std::endl;
 
 			Efficient_ransac::Shape_range shapes = ransac.shapes();
 
@@ -863,10 +868,6 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				std::vector<CGALPoint> points; 
 				std::vector<CGALPoint2> pointsForHull;
 				
-				float nx = 0;
-				float ny = 0;
-				float nz = 0;
-
 				for (
 					std::vector<std::size_t>::const_iterator index = (*it)->indices_of_assigned_points().begin();
 					index != (*it)->indices_of_assigned_points().end(); index++
@@ -877,24 +878,16 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 					Point2 imagePoint = depthData.images.First().camera.TransformPointW2I(Point3(ransacPointSamples[(*index)].first.x(), ransacPointSamples[(*index)].first.y(), ransacPointSamples[(*index)].first.z()));
 
 					pointsForHull.push_back(CGALPoint2(imagePoint.x, imagePoint.y));
-
-					nx += ransacPointSamples[(*index)].second.x();
-					ny += ransacPointSamples[(*index)].second.y();
-					nz += ransacPointSamples[(*index)].second.z();
 				}
-
-				nx /= (*it)->indices_of_assigned_points().size();
-				ny /= (*it)->indices_of_assigned_points().size();
-				nz /= (*it)->indices_of_assigned_points().size();
 
 				std::vector<CGALPoint2> convexHull;
 				CGAL::ch_graham_andrew(pointsForHull.begin(), pointsForHull.end(), std::back_inserter(convexHull));
 				
 				CGALPoint center = centroid(points.begin(), points.end());				
 
-				Planed finalPlane(Eigen::Vector3d(nx, ny, nz), (Point3d(center.x(), center.y(), center.z())));
+				Planed finalPlane(Eigen::Vector3d(plane.orthogonal_vector().x(), plane.orthogonal_vector().y(), plane.orthogonal_vector().z()), (Point3d(center.x(), center.y(), center.z())));
 
-				std::cout << center << plane.orthogonal_vector() << std::endl;
+				std::cout << center << " " << plane.orthogonal_vector() << " "  << points.size() << std::endl;
 
 				std::pair<Planed, std::vector<CGALPoint2>> planeAndBBox(finalPlane, convexHull);
 
@@ -905,6 +898,8 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			}
 
 			Point3d origin(depthData.images.First().camera.C.x, depthData.images.First().camera.C.y, depthData.images.First().camera.C.z);
+
+			std::ofstream intersections(ComposeDepthFilePath(depthData.GetView().GetID(), "intersections.txt").c_str());
 
 			// Iterate through region pixels and do the ray tracing
 			idx = -1;
@@ -918,45 +913,56 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 
 				int planeId = -1;
 				float minDistance = std::numeric_limits<float>::max();
-				float minAngle = std::numeric_limits<float>::max();
+				float maxAngle = 0;
 				
-
 				for (int i = 0; i < planes.size(); i++)
 				{										
-					bool isInside = CGAL::bounded_side_2(planes[i].second.begin(), planes[i].second.end(), CGALPoint2(coord.x, coord.y), Kernel()) == CGAL::ON_BOUNDED_SIDE;					
-					Normal n0(depthData.images.First().camera.R.t() * Cast<REAL>(depthData.normalMap(coord)));
-					Normal n1(planes[i].first.m_vN.x(), planes[i].first.m_vN.y(), planes[i].first.m_vN.z());
-					float angle = ACOS(ComputeAngle<float, float>(n0.ptr(), n1.ptr()));
+					bool isInside = true;// CGAL::bounded_side_2(planes[i].second.begin(), planes[i].second.end(), CGALPoint2(coord.x, coord.y), Kernel()) == CGAL::ON_BOUNDED_SIDE;
 					float distance = planes[i].first.DistanceAbs(test);
-
+					
 					if (isInside)
 					{
 						if (distance < minDistance) 
 						{
 							minDistance = distance;
+							planeId = i;
+							// Funziona abbastanza bene ma è da raffinare
+							//if (depthData.normalMap(coord) != Normal::ZERO)
+							//{							
+							//	Normal n0(depthData.images.First().camera.R.t() * Cast<REAL>(depthData.normalMap(coord)));
+							//	Normal n1(planes[i].first.m_vN.x(), planes[i].first.m_vN.y(), planes[i].first.m_vN.z());
+							//	float angle = ComputeAngle<float, float>(n0.ptr(), n1.ptr());
 
-							if (depthData.normalMap(coord) != Normal::ZERO)
-							{								
-								if (angle < minAngle)
-								{
-									minAngle = angle; //alcuni punti non hanno il valore di normale e quindi restano buchi in depth map prior perche non viene assegnato piano
-									planeId = i;
-								}
-							}
-							else 
-							{
-								planeId = i;
-							}
+							//	if (angle < 0.5)
+							//	{
+							//		angle = 1.0 - angle;
+							//	}
+
+							//	if (angle > maxAngle)
+							//	{
+							//		maxAngle = angle;
+							//		//minAngle = angle; //alcuni punti non hanno il valore di normale e quindi restano buchi in depth map prior perche non viene assegnato piano
+							//		planeId = i;
+							//	}
+							//}
+							//else 
+							//{
+							//	planeId = i;
+							//}
 						}
 					}
 				}				
 
 				if (planeId >= 0)
 				{
+					// !!!!! TODO - Fare intersection di ray con tutti i piani e prendere il piano con dist(origin, intersection) minore
+
 					Point3d direction = grid - origin;
 
 					const Ray3d ray(origin, direction);
 					const Point3d intersection(ray.Intersects(planes[planeId].first));
+					
+					intersections << intersection.x << " " << intersection.y << " " << intersection.z << std::endl;
 
 					depthMap(coord) = depthData.images.First().camera.TransformPointW2I3(intersection).z;
 					const Normal planeNormal(planes[planeId].first.m_vN.x(), planes[planeId].first.m_vN.y(), planes[planeId].first.m_vN.z()); // Normal in object space
@@ -967,6 +973,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				}				
 			}
 
+			intersections.close();
 #if 1 && TD_VERBOSE != TD_VERBOSE_OFF
 			// save intermediate depth map as image
 			if (g_nVerbosityLevel > 4) {
