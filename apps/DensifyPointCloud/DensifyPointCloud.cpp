@@ -95,6 +95,9 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	unsigned nEstimateNormals;
 	String nIgnoreMaskLabel;
 	bool nUseSemantic;
+	float fSemanticConsistencyMul;
+	float fsigmaTexture;
+	float fsigmaPrior;
 	boost::program_options::options_description config("Densify options");
 	config.add_options()
 		("input-file,i", boost::program_options::value<std::string>(&OPT::strInputFileName), "input filename containing camera poses and image list")
@@ -111,7 +114,11 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 		("sample-mesh", boost::program_options::value(&OPT::fSampleMesh)->default_value(0.f), "uniformly samples points on a mesh (0 - disabled, <0 - number of points, >0 - sample density per square unit)")
 		("filter-point-cloud", boost::program_options::value(&OPT::thFilterPointCloud)->default_value(0), "filter dense point-cloud based on visibility (0 - disabled)")
 		("fusion-mode", boost::program_options::value(&OPT::nFusionMode)->default_value(0), "depth map fusion mode (-2 - fuse disparity-maps, -1 - export disparity-maps only, 0 - depth-maps & fusion, 1 - export depth-maps only)")
+		("semantic-multiplier", boost::program_options::value(&fSemanticConsistencyMul)->default_value(0.1), "weight semantic prior")
+		("sigma-texture", boost::program_options::value(&fsigmaTexture)->default_value(0.05), "weight texture sigma")
+		("sigma-prior", boost::program_options::value(&fsigmaPrior)->default_value(0.2), "weight semantic prior sigma")
 		;
+
 
 	// hidden options, allowed both on command line and
 	// in config file, but will not be shown to the user
@@ -185,6 +192,9 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	OPTDENSE::nEstimateNormals = nEstimateNormals;
 	OPTDENSE::nIgnoreMaskLabel = nIgnoreMaskLabel;
 	OPTDENSE::nUseSemantic = nUseSemantic;
+	OPTDENSE::fSemanticConsistencyMul = fSemanticConsistencyMul;
+	OPTDENSE::fsigmaTexture = fsigmaTexture;
+	OPTDENSE::fsigmaPrior = fsigmaPrior;
 	if (!bValidConfig && !OPT::strDenseConfigFileName.IsEmpty())
 		OPTDENSE::oConfig.Save(OPT::strDenseConfigFileName);
 

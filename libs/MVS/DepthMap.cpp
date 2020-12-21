@@ -108,6 +108,9 @@ MDEFVAR_OPTDENSE_float(fRandomAngle2Range, "Random Angle2 Range", "Angle 2 range
 MDEFVAR_OPTDENSE_float(fRandomSmoothDepth, "Random Smooth Depth", "Depth variance used during neighbor smoothness assignment (ratio)", "0.02")
 MDEFVAR_OPTDENSE_float(fRandomSmoothNormal, "Random Smooth Normal", "Normal variance used during neighbor smoothness assignment (degrees)", "13")
 MDEFVAR_OPTDENSE_float(fRandomSmoothBonus, "Random Smooth Bonus", "Score factor used to encourage smoothness (1 - disabled)", "0.93")
+MDEFVAR_OPTDENSE_float(fSemanticConsistencyMul, "Semantic Consistency Multiplier", "Weight of semantic prior", "0.1")
+MDEFVAR_OPTDENSE_float(fsigmaTexture, "sigma texture", "Textureness coefficient sigma", "0.05")
+MDEFVAR_OPTDENSE_float(fsigmaPrior, "sigma prior", "Prior coefficient sigma", "0.2")
 }
 
 
@@ -524,30 +527,39 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 	}
 	#endif
 	
-	float fSemanticConsistencyMul = 0.1;	
+	float fSemanticConsistencyMul = OPTDENSE::fSemanticConsistencyMul;
+	float fsigmaTexture = OPTDENSE::fsigmaTexture;
+	float fsigmaPrior = OPTDENSE::fsigmaPrior;
 
-	// Hardcoded for now, will be specified by parameter
+
+	//std::cout << normSq0 << std::endl;
+
 	if(!image0.depthMapPrior.empty())
 	{		
 		if (image0.depthMapPrior(x0) != 0)
 		{						
-			Depth depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth); // 0 se sono motlo simili, 1 se sono distanti
-			
-			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(0.08f))); // Va a 1 se c'è poca texture a 0 se ce n'è molta
+			const Depth depthDifference = DepthSimilarity(image0.depthMapPrior(x0),depth);
+			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(fsigmaTexture)));
 
-			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(0.1f))); // Alzando sigma (da 0.01 a 0.03 ho transizione piu smooth) 1 se c'è molta similarity, 0 altrimenti
-
-			// Se c'è poca texture moltiplica per 0.qualcosa
-			// Se c'è poca depth similarity moltiplica per 0.9qualcosa
-			//score = score * (1.f - weightTexture) + score * (1.f - weightPrior);
-
+			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(fsigmaPrior)));
 			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior) * weightTexture;
+			
+			/*if (depth < Depth(image0.depthMapPrior(x0)))
+			{
+				depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth);
+			}*/
+			
+			//score = score * (1.f - exp(-pow(normSq0, 2) / (3 * 0.008))) + fSemanticConsistencyMul * (1.f - exp(-pow(depthDifference, 2) / (2 * 0.01)*((-pow(normSq0, 2) / (3 * 0.008)))));
+			//float tmp = exp(-(normSq0) / (2 * pow(3, 2)));
+			//std::cout << tmp << std::endl;
+			//score = score * (1.f - exp(-(normSq0) / (2 * pow(0.02, 2)))) + fSemanticConsistencyMul * (1.f - exp(-pow(depthDifference, 2) / (2 * pow(0.02, 2))) * exp(-(normSq0) / (2 * pow(0.02, 2))));
 		}			
 	}	
 
 	ASSERT(ISFINITE(score));
 	return score;
 }
+
 
 // compute pixel's NCC score
 float DepthEstimator::ScorePixel(Depth depth, const Normal& normal)

@@ -128,6 +128,10 @@ extern float fRandomAngle2Range;
 extern float fRandomSmoothDepth;
 extern float fRandomSmoothNormal;
 extern float fRandomSmoothBonus;
+extern float fSemanticConsistencyMul;
+extern float fsigmaTexture;
+extern float fsigmaPrior;
+
 } // namespace OPTDENSE
 /*----------------------------------------------------------------*/
 
@@ -188,7 +192,7 @@ struct MVS_API DepthData {
 		FOREACHPTR(ptrImage, images)
 			ptrImage->image.release();
 	}
-	inline void Release() {
+	inline void Release() { 
 		depthMap.release();
 		normalMap.release();
 		confMap.release();
@@ -234,7 +238,7 @@ typedef MVS_API CLISTDEFIDX(DepthData,IIndex) DepthDataArr;
 
 
 struct MVS_API DepthEstimator {
-	enum { nSizeHalfWindow = 5 };
+	enum { nSizeHalfWindow = 7 }; // default was 5
 	enum { nSizeWindow = nSizeHalfWindow*2+1 };
 	enum { nSizeStep = 2 };
 	enum { TexelChannels = 1 };
