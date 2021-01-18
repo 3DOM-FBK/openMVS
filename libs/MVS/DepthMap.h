@@ -291,6 +291,7 @@ struct MVS_API DepthEstimator {
 			Hl(image1.camera.K * image1.camera.R * image0.camera.R.t()),
 			Hm(image1.camera.K * image1.camera.R * (image0.camera.C - image1.camera.C)),
 			Hr(image0.camera.K.inv()) {}
+
 	};
 
 	SEACAVE::Random rnd;
