@@ -530,7 +530,6 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 	float fSemanticConsistencyMul = OPTDENSE::fSemanticConsistencyMul;
 	float fsigmaTexture = OPTDENSE::fsigmaTexture;
 	float fsigmaPrior = OPTDENSE::fsigmaPrior;
-	float fGeomConsistencyMul = 0.5;
 
 	if(!image0.depthMapPrior.empty())
 	{		
@@ -539,52 +538,8 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 			const Depth depthDifference = DepthSimilarity(image0.depthMapPrior(x0),depth);
 			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(fsigmaTexture)));
 			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(fsigmaPrior)));
-		
-			//if (!image1.view.depthMapPrior.empty()){ // never enters here
 
-				struct ValidDepth{ //struct to check if depths are close to each other
-					const Depth d0;
-					inline bool operator() (Depth d) const {return IsDepthSimilar(d0,d, 0.03f);};
-				};
-				
-				const Point3d X0_depth(Point3f((X0(0))*depth,(X0(1))*depth,depth));
-				const Point3d X1_tmp((image1.view.camera.K * image1.view.camera.R * image0.camera.R.t())*X0_depth);
-				const Point3f X1_1(image1.Hl*X0_depth+Point3d(image1.Hm));
-				const Point3f X1(X1_tmp + image1.view.camera.K * image1.view.camera.R * (image0.camera.C - image1.view.camera.C)); // 3D point of image0 in the reference system of image1 ???
-				double geomPrior (3.f);
-
-				if (X1.z>0){
-					const Point2d x1(X1); // 3D version of the 3D point on the plane of image1
-					
-					if (image1.view.pImageData->image.isInsideWithBorder<float,1>(x1)){
-						Depth depth1;
-						// depthMapPrior is empty, gives error, to be investigated
-						if (image1.view.depthMapPrior.sample(depth1, x1, ValidDepth{X1.z})){ // why sample --> if depth is valid, sample by bilinear, return depth1
-						
-							Point3d tmp(x1.x*depth1, x1.y*depth1, depth1);
-							const Point2d xb(image0.camera.K * image0.camera.R*(image1.view.camera.R.t()*image0.camera.K*tmp + image1.view.camera.C - image0.camera.C)); // transform in the plane of image 0
-							geomPrior = MINF(norm(Cast<double>(x0)-xb), geomPrior);							
-						}
-					}
-				}
-			//}
-
-			
-			const float weightGeomPrior = EXP(-SQUARE(geomPrior) / (2 * SQUARE(fsigmaPrior)));
-			
-			//score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior) * weightTexture; // original CVPR
-			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior) * weightTexture + fGeomConsistencyMul*(1.f-weightGeomPrior);
-			
-			
-			/*if (depth < Depth(image0.depthMapPrior(x0)))
-			{
-				depthDifference = DepthSimilarity(image0.depthMapPrior(x0), depth);
-			}*/
-			
-			//score = score * (1.f - exp(-pow(normSq0, 2) / (3 * 0.008))) + fSemanticConsistencyMul * (1.f - exp(-pow(depthDifference, 2) / (2 * 0.01)*((-pow(normSq0, 2) / (3 * 0.008)))));
-			//float tmp = exp(-(normSq0) / (2 * pow(3, 2)));
-			//std::cout << tmp << std::endl;
-			//score = score * (1.f - exp(-(normSq0) / (2 * pow(0.02, 2)))) + fSemanticConsistencyMul * (1.f - exp(-pow(depthDifference, 2) / (2 * pow(0.02, 2))) * exp(-(normSq0) / (2 * pow(0.02, 2))));
+			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior) * weightTexture; 
 		}			
 	}	
 
