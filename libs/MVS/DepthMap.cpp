@@ -542,7 +542,7 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior) * weightTexture; 
 		}			
 	}	
-
+	
 	ASSERT(ISFINITE(score));
 	return score;
 }
