@@ -660,6 +660,9 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 		GenerateDepthPrior(depthData, coords);
 
 		// run propagation and random refinement cycles on the reference data
+
+		#if 1
+
 		for (unsigned iter = OPTDENSE::nEstimationIters; iter < OPTDENSE::nEstimationIters+2; ++iter) {
 			// create working threads
 			idxPixel = -1;
@@ -690,6 +693,10 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 			}
 			#endif
 		}
+
+
+		#endif
+
 	}
 
 	// remove all estimates with too big score and invert confidence map
@@ -782,7 +789,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				{
 					regionPixels.Insert(coord);
 
-					if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.15) // Try different conf threshold
+					if (depthData.depthMap(coord) != 0 && depthData.confMap(coord) < 0.18) // Try different conf threshold
 					{
 						const Point3d point(depthData.images.First().camera.TransformPointI2W(Point3d(coord.x, coord.y, depthData.depthMap(coord))));
 						const Point3d N(depthData.images.First().camera.R.t() * Cast<REAL>(depthData.normalMap(coord))); // Convert normal to object space
@@ -875,11 +882,11 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			// Set probability to miss the largest primitive at each iteration.
 			parameters.probability = 0.01;
 			// Detect shapes with at least size / n points.
-			parameters.min_points = filteredPointSamples.size() / 20;
+			parameters.min_points = filteredPointSamples.size() / OPTDENSE::fransacMinPointsDiv;
 			// Set maximum Euclidean distance between a point and a shape.
-			parameters.epsilon = average_spacing * 2;
+			parameters.epsilon = average_spacing * OPTDENSE::fransacEpsilonMul;
 			// Set maximum Euclidean distance between points to be clustered.
-			parameters.cluster_epsilon = average_spacing * 10;
+			parameters.cluster_epsilon = average_spacing * OPTDENSE::fransacClusterMul;
 			// Set maximum normal deviation (rad).
 			//0.9 < dot(surface_normal, point_normal);
 			parameters.normal_threshold = 0.25;

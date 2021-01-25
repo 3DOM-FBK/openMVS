@@ -98,6 +98,9 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	float fSemanticConsistencyMul;
 	float fsigmaTexture;
 	float fsigmaPrior;
+	float fransacEpsilonMul;
+	float fransacClusterMul;
+	float fransacMinPointsDiv;
 	boost::program_options::options_description config("Densify options");
 	config.add_options()
 		("input-file,i", boost::program_options::value<std::string>(&OPT::strInputFileName), "input filename containing camera poses and image list")
@@ -117,6 +120,9 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 		("semantic-multiplier", boost::program_options::value(&fSemanticConsistencyMul)->default_value(0.1), "weight semantic prior")
 		("sigma-texture", boost::program_options::value(&fsigmaTexture)->default_value(0.05), "weight texture sigma")
 		("sigma-prior", boost::program_options::value(&fsigmaPrior)->default_value(0.2), "weight semantic prior sigma")
+		("ransac-epsilon", boost::program_options::value(&fransacEpsilonMul)->default_value(2), "value to which avg_spacing will be multiplied for epsilon")
+		("ransac-cluster", boost::program_options::value(&fransacClusterMul)->default_value(10), "value to which avg_spacing will be multiplied for cluster")
+		("ransac-min-points", boost::program_options::value(&fransacMinPointsDiv)->default_value(80), "value to which total points will be divided for min points")
 		;
 
 
@@ -195,6 +201,9 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	OPTDENSE::fSemanticConsistencyMul = fSemanticConsistencyMul;
 	OPTDENSE::fsigmaTexture = fsigmaTexture;
 	OPTDENSE::fsigmaPrior = fsigmaPrior;
+	OPTDENSE::fransacEpsilonMul = fransacEpsilonMul;
+	OPTDENSE::fransacClusterMul = fransacClusterMul;
+	OPTDENSE::fransacMinPointsDiv = fransacMinPointsDiv;
 	if (!bValidConfig && !OPT::strDenseConfigFileName.IsEmpty())
 		OPTDENSE::oConfig.Save(OPT::strDenseConfigFileName);
 

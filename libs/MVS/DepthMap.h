@@ -131,6 +131,9 @@ extern float fRandomSmoothBonus;
 extern float fSemanticConsistencyMul;
 extern float fsigmaTexture;
 extern float fsigmaPrior;
+extern float fransacEpsilonMul;
+extern float fransacClusterMul;
+extern float fransacMinPointsDiv;
 
 } // namespace OPTDENSE
 /*----------------------------------------------------------------*/

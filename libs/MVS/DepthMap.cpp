@@ -111,6 +111,9 @@ MDEFVAR_OPTDENSE_float(fRandomSmoothBonus, "Random Smooth Bonus", "Score factor 
 MDEFVAR_OPTDENSE_float(fSemanticConsistencyMul, "Semantic Consistency Multiplier", "Weight of semantic prior", "0.1")
 MDEFVAR_OPTDENSE_float(fsigmaTexture, "sigma texture", "Textureness coefficient sigma", "0.05")
 MDEFVAR_OPTDENSE_float(fsigmaPrior, "sigma prior", "Prior coefficient sigma", "0.2")
+MDEFVAR_OPTDENSE_float(fransacEpsilonMul, "RANSAC epsilon multiplier", "avg_spacing*fransacEpsilonMul = maximum Euclidean distance between a point and a shape", "2")
+MDEFVAR_OPTDENSE_float(fransacClusterMul, "RANSAC cluster multiplier", "avg_spacing*fransacClusterMul = maximum Euclidean distance between points to be clustered", "10")
+MDEFVAR_OPTDENSE_float(fransacMinPointsDiv, "RANSAC min points divider", "points.size()/fransacMinPointsDiv = Detect shapes with at least size / n points.", "80")
 }
 
 
@@ -394,7 +397,7 @@ DepthEstimator::DepthEstimator(
 	thConfSmall(OPTDENSE::fNCCThresholdKeep*0.2f),
 	thConfBig(OPTDENSE::fNCCThresholdKeep*0.4f),
 	thConfRand(OPTDENSE::fNCCThresholdKeep*0.9f),
-	thRobust(OPTDENSE::fNCCThresholdKeep*1.2f)
+	thRobust(OPTDENSE::fNCCThresholdKeep*1.2f) // default is 1.2f
 	#if DENSE_REFINE == DENSE_REFINE_EXACT
 	, thPerturbation(1.f/POW(2.f,float(nIter+1)))
 	#endif
@@ -539,7 +542,7 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(fsigmaTexture)));
 			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(fsigmaPrior)));
 
-			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior) * weightTexture; 
+			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior);// * (weightTexture); // check influence of weightTexture on weightPrior
 		}			
 	}	
 	
