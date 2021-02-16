@@ -245,51 +245,54 @@ int main(int argc, LPCTSTR* argv)
 	#endif
 
 	if (!Initialize(argc, argv))
-		return EXIT_FAILURE;
+		return EXIT_FAILURE;	
 
-	if (!OPT::strDepthMapETH3DFileName.empty()) {
-		// Import ETH3D
-		cv::Size size1(6048, 4032);
+	if (!OPT::strDepthMapETH3DFileName.empty()) { 
+		// Load the ETH3D depth map (ground truth depth map)
+		cv::Size size(6048, 4032); // Check the correct size
 		DepthMap depthMapETH;
-		ImportDepthDataETH3D(MAKE_PATH_SAFE(OPT::strDepthMapETH3DFileName), size1, depthMapETH);
+		ImportDepthDataETH3D(MAKE_PATH_SAFE(OPT::strDepthMapETH3DFileName), size, depthMapETH);		
 		
-		cv::Size size2(3200, 2100);
+		String ext = Util::getFileExt(OPT::strDepthMapFileName);
+
 		DepthMap depthMap;
-#if 0
-		ImportDepthDataETH3D(MAKE_PATH_SAFE(OPT::strDepthMapFileName), size2, depthMap);
-
-		// Import our
-#else
-		DepthData data;
-		data.Load(MAKE_PATH_SAFE(OPT::strDepthMapFileName));		
-		depthMap = data.depthMap;
-#endif
-		// Resize ETH
-		//cv::resize(depthMapETH, depthMapETH, data.depthMap.size(), 1, 1, cv::INTER_NEAREST);
-
-		cv::resize(depthMapETH, depthMapETH, depthMap.size(), 1, 1, cv::INTER_NEAREST);
-
-		float maxDepthETH = 0;
-		float minDepthETH = FLT_MAX;
-
-		cList<Depth, Depth, 0> depthsETH(0, depthMapETH.area());
-		for (int i = depthMapETH.area(); --i >= 0; ) {
-			const Depth depth = depthMapETH[i];
-			ASSERT(depth == 0 || depth > 0);
-			if (depth > 0)
-				depthsETH.Insert(depth);
+		
+		if (ext == ".dmap") { // Load OpenMVS depth map
+			DepthData data;
+			data.Load(MAKE_PATH_SAFE(OPT::strDepthMapFileName));
+			depthMap = data.depthMap;
 		}
-		if (!depthsETH.empty()) {
-			const std::pair<Depth, Depth> th(ComputeX84Threshold<Depth, Depth>(depthsETH.data(), depthsETH.size()));
-			const std::pair<Depth, Depth> mm(depthsETH.GetMinMax());
-			maxDepthETH = MINF(th.first + th.second, mm.second);
-			minDepthETH = MAXF(th.first - th.second, mm.first);
+		else { // Load generic depth map
+			cv::Size size2(3200, 2132); // Check the correct size
+			ImportDepthDataETH3D(MAKE_PATH_SAFE(OPT::strDepthMapFileName), size2, depthMap);
+		}		
+		
+		if (!depthMap.empty()) {
+
+			cv::resize(depthMapETH, depthMapETH, depthMap.size(), 1, 1, cv::INTER_NEAREST);
+
+			float maxDepthETH = 0;
+			float minDepthETH = FLT_MAX;
+
+			cList<Depth, Depth, 0> depthsETH(0, depthMapETH.area());
+			for (int i = depthMapETH.area(); --i >= 0; ) {
+				const Depth depth = depthMapETH[i];
+				ASSERT(depth == 0 || depth > 0);
+				if (depth > 0)
+					depthsETH.Insert(depth);
+			}
+			if (!depthsETH.empty()) {
+				const std::pair<Depth, Depth> th(ComputeX84Threshold<Depth, Depth>(depthsETH.data(), depthsETH.size()));
+				const std::pair<Depth, Depth> mm(depthsETH.GetMinMax());
+				maxDepthETH = MINF(th.first + th.second, mm.second);
+				minDepthETH = MAXF(th.first - th.second, mm.first);
+			}
+
+			CompareDepthMaps(depthMap, depthMapETH, 0, 0.005);
+			ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapETH3DFileName) + ".png", depthMapETH);
+			ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapFileName) + ".png", depthMap, minDepthETH, maxDepthETH);
 		}
 
-		CompareDepthMaps(depthMap, depthMapETH, 0, 0.005);
-		ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapETH3DFileName) + ".png", depthMapETH);
-		//ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapFileName) + ".png", data.depthMap, minDepthETH, maxDepthETH);
-		ExportDepthMap(MAKE_PATH_SAFE(OPT::strDepthMapFileName) + ".png", depthMap, minDepthETH, maxDepthETH);
 		return EXIT_SUCCESS;
 	}
 
