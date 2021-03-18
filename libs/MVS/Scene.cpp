@@ -456,6 +456,7 @@ bool Scene::Load(const String& fileName, bool bImport)
 		++nCalibratedImages;
 		nTotalPixels += imageData.width * imageData.height;
 	}
+
 	DEBUG_EXTRA("Scene loaded (%s):\n"
 				"\t%u images (%u calibrated) with a total of %.2f MPixels (%.2f MPixels/image)\n"
 				"\t%u points, %u vertices, %u faces",

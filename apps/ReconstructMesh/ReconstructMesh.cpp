@@ -220,6 +220,7 @@ int main(int argc, LPCTSTR* argv)
 	Scene scene(OPT::nMaxThreads);
 	// load project
 	if (!scene.Load(MAKE_PATH_SAFE(OPT::strInputFileName)))
+	//if (!scene.Load(MAKE_PATH_SAFE(OPT::strInputFileName)))
 		return EXIT_FAILURE;
 	if (OPT::bMeshExport) {
 		// check there is a mesh to export

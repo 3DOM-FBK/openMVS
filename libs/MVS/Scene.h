@@ -68,12 +68,14 @@ public:
 	bool IsEmpty() const;
 
 	bool LoadInterface(const String& fileName);
+	bool LoadInterface_edgeFeature(const String& FileName, const String& edgeFileName);
 	bool SaveInterface(const String& fileName, int version=-1) const;
 
 	bool LoadDMAP(const String& fileName);
 	bool Import(const String& fileName);
 
 	bool Load(const String& fileName, bool bImport=false);
+	bool Load_edgeFeature(const String& fileName, const String& edgeFileName, bool bImport=false);
 	bool Save(const String& fileName, ARCHIVE_TYPE type=ARCHIVE_BINARY_ZIP) const;
 
 	bool SelectNeighborViews(uint32_t ID, IndexArr& points, unsigned nMinViews=3, unsigned nMinPointViews=2, float fOptimAngle=FD2R(10));

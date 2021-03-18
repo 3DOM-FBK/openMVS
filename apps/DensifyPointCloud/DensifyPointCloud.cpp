@@ -45,6 +45,8 @@ using namespace MVS;
 
 namespace OPT {
 String strInputFileName;
+String strInputEdgeFileName;
+String strDenseWithEdge;
 String strOutputFileName;
 String strMeshFileName;
 String strDenseConfigFileName;
@@ -97,6 +99,8 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	boost::program_options::options_description config("Densify options");
 	config.add_options()
 		("input-file,i", boost::program_options::value<std::string>(&OPT::strInputFileName), "input filename containing camera poses and image list")
+		("input-edge-file,e", boost::program_options::value<std::string>(&OPT::strInputEdgeFileName), "input filename containing edge points list")
+		("dense-with-edge", boost::program_options::value<std::string>(&OPT::strDenseWithEdge), "define if you want to include edge feature from external file (True or False)")
 		("output-file,o", boost::program_options::value<std::string>(&OPT::strOutputFileName), "output filename for storing the dense point-cloud")
 		("resolution-level", boost::program_options::value(&nResolutionLevel)->default_value(1), "how many times to scale down the images before point cloud computation")
 		("max-resolution", boost::program_options::value(&nMaxResolution)->default_value(3200), "do not scale images higher than this resolution")
@@ -267,6 +271,53 @@ int main(int argc, LPCTSTR* argv)
 		}
 		VERBOSE("Densifying point-cloud completed: %u points (%s)", scene.pointcloud.GetSize(), TD_TIMER_GET_FMT().c_str());
 	}
+
+	// Read edge File
+	if (OPT::strDenseWithEdge == "True") {
+		VERBOSE("### File edge inserito... %s", MAKE_PATH_SAFE(OPT::strInputEdgeFileName));
+		std::ifstream fs_edge(MAKE_PATH_SAFE(OPT::strInputEdgeFileName), std::ios::in | std::ios::binary);
+		if (!fs_edge.is_open())
+			return false;
+		
+		std::string line;
+		std::vector<std::string> result;
+		while (std::getline(fs_edge, line)) {
+			// VERBOSE("Substring = %s", line.c_str());
+			std::string substr;
+			std::stringstream s_stream(line);
+			while (std::getline(s_stream, substr, ' ')) {
+				// VERBOSE("Substring = %s", substr.c_str());
+				result.push_back(substr);
+			}
+
+			// Insert new Point
+			//VERBOSE("point 1 = %f", std::stof(result[0].c_str()));
+			scene.pointcloud.points.AddConstruct(std::stof(result[0].c_str()), std::stof(result[1].c_str()), std::stof(result[2].c_str()));
+			scene.pointcloud.pointWeights.AddConstruct(0.0);
+			MVS::PointCloud::ViewArr viewList;
+			for (long unsigned int i=2; i<result.size(); ++i) {
+				viewList.push_back(atoi(result[i].c_str()));
+			} 
+			
+			scene.pointcloud.pointViews.AddConstruct(viewList);
+
+			result.clear();
+			viewList.clear();
+		}
+	} else {
+		VERBOSE("### File edge non inserito...");
+	}
+
+	// Test print value
+	// FOREACH(i, scene.pointcloud.points) {
+	// 	cv::Point3_<float> point = scene.pointcloud.points[i];
+	// 	if (point == cv::Point3_<float>(5.0, 3.0, 5.0)) {
+	// 		VERBOSE("### Point = %f",  point.x);
+	// 		VERBOSE("### Weigth = %f",  scene.pointcloud.pointWeights[i][0]);
+	// 		VERBOSE("### View = %u",  scene.pointcloud.pointViews[i][1]);
+	// 	}
+	// }
+	
 
 	// save the final mesh
 	const String baseFileName(MAKE_PATH_SAFE(Util::getFileFullName(OPT::strOutputFileName)));

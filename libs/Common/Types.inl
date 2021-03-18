@@ -3779,6 +3779,9 @@ bool SerializeSave(const TYPE& obj, const SEACAVE::String& fileName, ARCHIVE_TYP
 template <typename TYPE>
 bool SerializeLoad(TYPE& obj, std::ifstream& fs, ARCHIVE_TYPE type, unsigned flags=0)
 {
+
+	VERBOSE("### Start SerializeLoad()");
+
 	try {
 		// serialize in the saved state
 		switch (type) {
