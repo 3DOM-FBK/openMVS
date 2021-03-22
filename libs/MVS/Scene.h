@@ -90,6 +90,10 @@ public:
 	void DenseReconstructionFilter(void*);
 	void PointCloudFilter(int thRemove=-1);
 
+	// Add edge Feature Point
+	bool FilterPointCloudWithEdgeFeature(const String& fileName);
+	bool AddEdgeFeaturePoint(const String& fileName);
+
 	// Mesh reconstruction
 	bool ReconstructMesh(float distInsert=2, bool bUseFreeSpaceSupport=true, unsigned nItersFixNonManifold=4,
 						 float kSigma=2.f, float kQual=1.f, float kb=4.f,

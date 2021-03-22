@@ -35,6 +35,26 @@
 // MRF: view selection
 #include "../Math/TRWS/MRFEnergy.h"
 
+// 3DOM incllude
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/compute_average_spacing.h>
+#include <CGAL/Orthogonal_k_neighbor_search.h>
+#include <CGAL/Search_traits_3.h>
+#include <CGAL/Fuzzy_sphere.h>
+#include <boost/iterator/zip_iterator.hpp>
+
+// types
+typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
+typedef Kernel::FT FT;
+typedef Kernel::Point_3 Point_3;
+
+typedef boost::tuple<Point_3,int> Point_and_int;
+typedef CGAL::Search_traits_3<Kernel> Traits_base;
+typedef CGAL::Search_traits_adapter<Point_and_int, CGAL::Nth_of_tuple_property_map<0, Point_and_int>, Traits_base> Traits_1;
+using Neighbor_search_1 = CGAL::Orthogonal_k_neighbor_search<Traits_1>;
+using Tree = Neighbor_search_1::Tree;
+typedef CGAL::Fuzzy_sphere<Traits_1> Fuzzy_circle;
+
 using namespace MVS;
 
 
@@ -2005,3 +2025,147 @@ void Scene::PointCloudFilter(int thRemove)
 	DEBUG_EXTRA("Point-cloud filtered: %u/%u points (%d%%%%) (%s)", pointcloud.points.size(), numInitPoints, ROUND2INT((100.f*pointcloud.points.GetSize())/numInitPoints), TD_TIMER_GET_FMT().c_str());
 } // PointCloudFilter
 /*----------------------------------------------------------------*/
+
+
+bool Scene::FilterPointCloudWithEdgeFeature(const String& fileName) {
+
+
+	VERBOSE("point size before = %i", pointcloud.points.size());
+	VERBOSE("point views before = %i", pointcloud.pointViews.size());
+	VERBOSE("point color before = %i", pointcloud.colors.size());
+	VERBOSE("point normal before = %i", pointcloud.normals.size());
+
+	std::ifstream fs_edge(fileName, std::ios::in | std::ios::binary);
+	if (!fs_edge.is_open())
+		return false;
+	
+	// Add edge Point with CGAL
+	// This line remove all point into openMVS structure --> pointcloud.Release();
+	std::vector<Point_3> kd_points;
+	int count = 0;
+	std::vector<int> indices;
+	std::list<Point_and_int> result_kdtree;
+	std::list<int> remove_points;
+
+	// FOREACH(v, pointcloud.pointViews) {
+	// 	VERBOSE("Pointcloud.point = %i", pointcloud.pointViews[v][0]);
+	// }
+
+	FOREACH(i, pointcloud.points) {
+		// VERBOSE("Pointcloud.point = %f", pointcloud.points[i].x);
+		kd_points.push_back(Point_3(pointcloud.points[i].x, pointcloud.points[i].y, pointcloud.points[i].z));
+		indices.push_back(count);
+        count++;
+	}
+
+	Tree tree(
+        boost::make_zip_iterator(boost::make_tuple( kd_points.begin(),indices.begin() )),
+        boost::make_zip_iterator(boost::make_tuple( kd_points.end(),indices.end() ) )
+    );
+
+	// Compute average spacing using neighborhood of 6 points
+	double avarage_spacing = CGAL::compute_average_spacing<CGAL::Sequential_tag>(kd_points, 6);
+
+	std::string line;
+	std::vector<std::string> result;
+	while (std::getline(fs_edge, line)) {
+		// VERBOSE("Substring = %s", line.c_str());
+		std::string substr;
+		std::stringstream s_stream(line);
+		while (std::getline(s_stream, substr, ' ')) {
+			// VERBOSE("Substring = %s", substr.c_str());
+			result.push_back(substr);
+		}
+
+		Point_3 center = Point_3(std::stof(result[0].c_str()), std::stof(result[1].c_str()), std::stof(result[2].c_str()));
+		Fuzzy_circle default_range(center, avarage_spacing*3);
+
+		tree.search(std::back_inserter(result_kdtree), default_range);
+        
+        for(std::list<Point_and_int>::iterator it = result_kdtree.begin(); it != result_kdtree.end(); it++){
+            remove_points.push_back( boost::get<1>(*it) );
+        }
+
+        result_kdtree.clear();
+		result.clear();
+	}
+
+	remove_points.sort();
+    remove_points.unique();
+	int start_size = kd_points.size();
+	int index = 0;
+    int last_index = kd_points.size();
+    int new_size = start_size;
+
+	for (std::list<int>::iterator it=remove_points.begin(); it!=remove_points.end(); ++it) {
+		new_size -= 1;
+        index = *it;
+        if (index > last_index) {
+            last_index = index;
+            index = index - (start_size - new_size);
+        }
+		//VERBOSE("remove_points = %i", *it);
+		pointcloud.RemovePoint(index);
+	}
+
+	// Release CGAL structure points
+	kd_points.clear();
+	remove_points.clear();
+	fs_edge.close();
+
+	VERBOSE("point size after = %i", pointcloud.points.size());
+	VERBOSE("point views after = %i", pointcloud.pointViews.size());
+	VERBOSE("point color after = %i", pointcloud.colors.size());
+	VERBOSE("point normal after = %i", pointcloud.normals.size());
+
+	return true;
+}
+
+bool Scene::AddEdgeFeaturePoint(const String& fileName) {
+
+	std::ifstream fs_edge(fileName, std::ios::in | std::ios::binary);
+	if (!fs_edge.is_open())
+		return false;
+	
+	std::string line;
+	std::vector<std::string> result;
+	while (std::getline(fs_edge, line)) {
+		// VERBOSE("Substring = %s", line.c_str());
+		std::string substr;
+		std::stringstream s_stream(line);
+		while (std::getline(s_stream, substr, ' ')) {
+			// VERBOSE("Substring = %s", substr.c_str());
+			result.push_back(substr);
+		}		
+		// Insert new Point
+		pointcloud.points.AddConstruct(std::stof(result[0].c_str()), std::stof(result[1].c_str()), std::stof(result[2].c_str()));
+		pointcloud.pointWeights.AddConstruct(1.0);
+		pointcloud.colors.AddConstruct(Pixel8U::BLACK);
+		pointcloud.normals.AddConstruct(Point3f::ZERO);
+		MVS::PointCloud::ViewArr viewList;
+		for (long unsigned int i=3; i<result.size(); ++i) {
+			// VERBOSE("READ VIEW = %s", result[i].c_str());
+			viewList.push_back(atoi(result[i].c_str()));
+		}
+
+		
+		pointcloud.pointViews.AddConstruct(viewList);
+		result.clear();
+		viewList.clear();
+	}
+
+	fs_edge.close();
+
+	// for (long unsigned int i=pointcloud.pointViews.size(); i>0; i--) {
+		// VERBOSE("Pointcloud.point = %i", pointcloud.pointViews[i].size());
+	// }
+
+	VERBOSE("point size with edge = %i", pointcloud.points.size());
+	VERBOSE("point views with edge = %i", pointcloud.pointViews.size());
+	VERBOSE("point color with edge = %i", pointcloud.colors.size());
+	VERBOSE("point normal with edge = %i", pointcloud.normals.size());
+
+
+
+	return true;
+}
