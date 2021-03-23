@@ -58,6 +58,11 @@
 #  pragma warning(pop)
 #endif
 
+// 3DOM include
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Surface_mesh.h>
+#include <CGAL/Polygon_mesh_processing/smooth_shape.h>
+
 using namespace MVS;
 
 
@@ -990,6 +995,7 @@ void Mesh::Clean(float fDecimate, float fSpurious, bool bRemoveSpikes, unsigned 
 		}
 		faces.Release();
 	}
+	
 
 	// decimate mesh
 	if (fDecimate < 1) {
@@ -1212,6 +1218,45 @@ void Mesh::Clean(float fDecimate, float fSpurious, bool bRemoveSpikes, unsigned 
 	DEBUG("Cleaned mesh: %u vertices, %u faces (%s)", vertices.GetSize(), faces.GetSize(), TD_TIMER_GET_FMT().c_str());
 } // Clean
 /*----------------------------------------------------------------*/
+
+void Mesh::SmoothMeshEdge(unsigned nSmoothMeshEdge) {
+
+	typedef CGAL::Exact_predicates_inexact_constructions_kernel   K;
+	typedef CGAL::Surface_mesh<K::Point_3>                        CGALMesh;
+	typedef CGALMesh::Vertex_index vertex_descriptor;
+	namespace PMP = CGAL::Polygon_mesh_processing;
+
+	CGALMesh m;
+	std::vector<vertex_descriptor> v_descriptor;
+
+	FOREACH(v, vertices) {
+		v_descriptor.push_back(m.add_vertex(K::Point_3(vertices[v][0], vertices[v][1], vertices[v][0])));
+	}
+
+	FOREACH(f, faces) {
+		vertex_descriptor u = v_descriptor.at(faces[f][0]);
+		vertex_descriptor w = v_descriptor.at(faces[f][1]);
+		vertex_descriptor z = v_descriptor.at(faces[f][2]);
+		m.add_face(u, w, z);
+	}
+
+	const double time = 0.0001;
+	//PMP::smooth_shape(m, time, PMP::parameters::number_of_iterations(nSmoothMeshEdge));
+
+	vertices.Release();
+
+	for(vertex_descriptor vd : m.vertices()){      
+	  auto p = m.point(vd);
+	  MVS::Mesh::Vertex pp = Vertex(p.x(), p.y(), p.z());
+	  vertices.push_back(pp);
+
+	  std::cout << pp.x << " - " << pp.y << " - " << pp.z << std::endl;
+    }
+
+	
+
+
+}
 
 
 // define a PLY file format composed only of vertices and triangles

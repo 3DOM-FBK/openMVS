@@ -63,6 +63,7 @@ float fRemoveSpurious;
 bool bRemoveSpikes;
 unsigned nCloseHoles;
 unsigned nSmoothMesh;
+unsigned nSmoothMeshEdge;
 unsigned nArchiveType;
 int nProcessPriority;
 unsigned nMaxThreads;
@@ -117,6 +118,7 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 		("remove-spikes", boost::program_options::value<bool>(&OPT::bRemoveSpikes)->default_value(true), "flag controlling the removal of spike faces")
 		("close-holes", boost::program_options::value<unsigned>(&OPT::nCloseHoles)->default_value(30), "try to close small holes in the reconstructed surface (0 - disabled)")
 		("smooth", boost::program_options::value<unsigned>(&OPT::nSmoothMesh)->default_value(2), "number of iterations to smooth the reconstructed surface (0 - disabled)")
+		("smooth-edge-preserving", boost::program_options::value<unsigned>(&OPT::nSmoothMeshEdge)->default_value(2), "number of iterations to smooth the reconstructed surface (0 - disabled)")
 		;
 
 	// hidden options, allowed both on command line and
@@ -294,6 +296,7 @@ int main(int argc, LPCTSTR* argv)
 		scene.mesh.Clean(OPT::fDecimateMesh, OPT::fRemoveSpurious, OPT::bRemoveSpikes, OPT::nCloseHoles, OPT::nSmoothMesh, false);
 		scene.mesh.Clean(1.f, 0.f, OPT::bRemoveSpikes, OPT::nCloseHoles, 0, false); // extra cleaning trying to close more holes
 		scene.mesh.Clean(1.f, 0.f, false, 0, 0, true); // extra cleaning to remove non-manifold problems created by closing holes
+		scene.mesh.SmoothMeshEdge(OPT::nSmoothMeshEdge);
 
 		// save the final mesh
 		const String baseFileName(MAKE_PATH_SAFE(Util::getFileFullName(OPT::strOutputFileName)));

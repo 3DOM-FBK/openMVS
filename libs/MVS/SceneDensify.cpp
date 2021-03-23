@@ -35,7 +35,7 @@
 // MRF: view selection
 #include "../Math/TRWS/MRFEnergy.h"
 
-// 3DOM incllude
+// 3DOM include
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/compute_average_spacing.h>
 #include <CGAL/Orthogonal_k_neighbor_search.h>
@@ -2028,31 +2028,17 @@ void Scene::PointCloudFilter(int thRemove)
 
 
 bool Scene::FilterPointCloudWithEdgeFeature(const String& fileName) {
-
-
-	VERBOSE("point size before = %i", pointcloud.points.size());
-	VERBOSE("point views before = %i", pointcloud.pointViews.size());
-	VERBOSE("point color before = %i", pointcloud.colors.size());
-	VERBOSE("point normal before = %i", pointcloud.normals.size());
-
 	std::ifstream fs_edge(fileName, std::ios::in | std::ios::binary);
 	if (!fs_edge.is_open())
 		return false;
 	
-	// Add edge Point with CGAL
-	// This line remove all point into openMVS structure --> pointcloud.Release();
 	std::vector<Point_3> kd_points;
 	int count = 0;
 	std::vector<int> indices;
 	std::list<Point_and_int> result_kdtree;
 	std::list<int> remove_points;
 
-	// FOREACH(v, pointcloud.pointViews) {
-	// 	VERBOSE("Pointcloud.point = %i", pointcloud.pointViews[v][0]);
-	// }
-
 	FOREACH(i, pointcloud.points) {
-		// VERBOSE("Pointcloud.point = %f", pointcloud.points[i].x);
 		kd_points.push_back(Point_3(pointcloud.points[i].x, pointcloud.points[i].y, pointcloud.points[i].z));
 		indices.push_back(count);
         count++;
@@ -2069,11 +2055,9 @@ bool Scene::FilterPointCloudWithEdgeFeature(const String& fileName) {
 	std::string line;
 	std::vector<std::string> result;
 	while (std::getline(fs_edge, line)) {
-		// VERBOSE("Substring = %s", line.c_str());
 		std::string substr;
 		std::stringstream s_stream(line);
 		while (std::getline(s_stream, substr, ' ')) {
-			// VERBOSE("Substring = %s", substr.c_str());
 			result.push_back(substr);
 		}
 
@@ -2093,36 +2077,22 @@ bool Scene::FilterPointCloudWithEdgeFeature(const String& fileName) {
 	remove_points.sort();
     remove_points.unique();
 	int start_size = kd_points.size();
-	int index = 0;
     int last_index = kd_points.size();
     int new_size = start_size;
 
-	for (std::list<int>::iterator it=remove_points.begin(); it!=remove_points.end(); ++it) {
-		new_size -= 1;
-        index = *it;
-        if (index > last_index) {
-            last_index = index;
-            index = index - (start_size - new_size);
-        }
-		//VERBOSE("remove_points = %i", *it);
-		pointcloud.RemovePoint(index);
+	for (std::list<int>::iterator it=remove_points.end(); it!=remove_points.begin(); --it) {
+		pointcloud.RemovePoint(*it);
 	}
 
-	// Release CGAL structure points
+	// Release CGAL structure points and close fstream
 	kd_points.clear();
 	remove_points.clear();
 	fs_edge.close();
-
-	VERBOSE("point size after = %i", pointcloud.points.size());
-	VERBOSE("point views after = %i", pointcloud.pointViews.size());
-	VERBOSE("point color after = %i", pointcloud.colors.size());
-	VERBOSE("point normal after = %i", pointcloud.normals.size());
 
 	return true;
 }
 
 bool Scene::AddEdgeFeaturePoint(const String& fileName) {
-
 	std::ifstream fs_edge(fileName, std::ios::in | std::ios::binary);
 	if (!fs_edge.is_open())
 		return false;
@@ -2130,11 +2100,9 @@ bool Scene::AddEdgeFeaturePoint(const String& fileName) {
 	std::string line;
 	std::vector<std::string> result;
 	while (std::getline(fs_edge, line)) {
-		// VERBOSE("Substring = %s", line.c_str());
 		std::string substr;
 		std::stringstream s_stream(line);
 		while (std::getline(s_stream, substr, ' ')) {
-			// VERBOSE("Substring = %s", substr.c_str());
 			result.push_back(substr);
 		}		
 		// Insert new Point
@@ -2144,28 +2112,13 @@ bool Scene::AddEdgeFeaturePoint(const String& fileName) {
 		pointcloud.normals.AddConstruct(Point3f::ZERO);
 		MVS::PointCloud::ViewArr viewList;
 		for (long unsigned int i=3; i<result.size(); ++i) {
-			// VERBOSE("READ VIEW = %s", result[i].c_str());
 			viewList.push_back(atoi(result[i].c_str()));
 		}
-
-		
 		pointcloud.pointViews.AddConstruct(viewList);
 		result.clear();
 		viewList.clear();
 	}
 
 	fs_edge.close();
-
-	// for (long unsigned int i=pointcloud.pointViews.size(); i>0; i--) {
-		// VERBOSE("Pointcloud.point = %i", pointcloud.pointViews[i].size());
-	// }
-
-	VERBOSE("point size with edge = %i", pointcloud.points.size());
-	VERBOSE("point views with edge = %i", pointcloud.pointViews.size());
-	VERBOSE("point color with edge = %i", pointcloud.colors.size());
-	VERBOSE("point normal with edge = %i", pointcloud.normals.size());
-
-
-
 	return true;
 }

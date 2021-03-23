@@ -130,6 +130,7 @@ public:
 
 	bool FixNonManifold();
 	void Clean(float fDecimate=0.7f, float fSpurious=10.f, bool bRemoveSpikes=true, unsigned nCloseHoles=30, unsigned nSmoothMesh=2, bool bLastClean=true);
+	void SmoothMeshEdge(unsigned nSmoothMeshEdge=10);
 
 	void EnsureEdgeSize(float minEdge=-0.5f, float maxEdge=-4.f, float collapseRatio=0.2, float degenerate_angle_deg=150, int mode=1, int max_iters=50);
 

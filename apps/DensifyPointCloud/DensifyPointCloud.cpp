@@ -272,34 +272,14 @@ int main(int argc, LPCTSTR* argv)
 		VERBOSE("Densifying point-cloud completed: %u points (%s)", scene.pointcloud.GetSize(), TD_TIMER_GET_FMT().c_str());
 	}
 
-	// save the final mesh
-	// const String baseFileName(MAKE_PATH_SAFE(Util::getFileFullName(OPT::strOutputFileName)));
-	// scene.Save(baseFileName+_T(".mvs"), (ARCHIVE_TYPE)OPT::nArchiveType);
-	// scene.pointcloud.Save(baseFileName+_T(".ply"));
-	// #if TD_VERBOSE != TD_VERBOSE_OFF
-	// if (VERBOSITY_LEVEL > 2)
-	// 	scene.ExportCamerasMLP(baseFileName+_T(".mlp"), baseFileName+_T(".ply"));
-	// #endif
-
-	
-	// Test print value
-	// FOREACH(i, scene.pointcloud.points) {
-	// 	cv::Point3_<float> point = scene.pointcloud.points[i];
-	// 	if (point == cv::Point3_<float>(5.0, 3.0, 5.0)) {
-	// 		VERBOSE("### Point = %f",  point.x);
-	// 		VERBOSE("### Weigth = %f",  scene.pointcloud.pointWeights[i][0]);
-	// 		VERBOSE("### View = %u",  scene.pointcloud.pointViews[i][1]);
-	// 	}
-	// }
-
 	// Read edge File
 	if (OPT::strDenseWithEdge == "True") {
 		if (!scene.FilterPointCloudWithEdgeFeature(MAKE_PATH_SAFE(OPT::strInputEdgeFileName))) {
 			return EXIT_FAILURE;
 		}
-		// if (!scene.AddEdgeFeaturePoint(MAKE_PATH_SAFE(OPT::strInputEdgeFileName))) {
-		// 	return EXIT_FAILURE;
-		// }
+		if (!scene.AddEdgeFeaturePoint(MAKE_PATH_SAFE(OPT::strInputEdgeFileName))) {
+			return EXIT_FAILURE;
+		}
 		
 		// save the final mesh with edge
 		const String baseFileName(MAKE_PATH_SAFE(Util::getFileFullName(OPT::strOutputFileName)));
