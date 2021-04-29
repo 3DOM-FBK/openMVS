@@ -1599,11 +1599,33 @@ Image8U3 MVS::DepthMap2Image(const DepthMap& depthMap, Depth minDepth, Depth max
 	}
 	return img;
 } // DepthMap2Image
+
+// Exports a depth map in the correct format to use with https://github.com/chaowang15/RGBDPlaneDetection.
+// export depth map as a 16bit grayscale image
+Image16U MVS::DepthMap2ImageU16(const DepthMap& depthMap, float scaleFactor)
+{	
+	// create grayscale image
+	Image16U img(depthMap.size());
+	for (int i=depthMap.area(); --i >= 0; ) {
+		const Depth depth = depthMap[i];
+		img[i] = (depth > 0 ? (int)(CLAMP(depth * scaleFactor, Depth(0), Depth(65535))) : 0);
+	}
+	return img;
+} // DepthMap2Image
+
 bool MVS::ExportDepthMap(const String& fileName, const DepthMap& depthMap, Depth minDepth, Depth maxDepth)
 {
 	if (depthMap.empty())
 		return false;
 	return DepthMap2Image(depthMap, minDepth, maxDepth).Save(fileName);
+} // ExportDepthMap
+/*----------------------------------------------------------------*/
+
+bool MVS::ExportDepthMapRaw(const String& fileName, const DepthMap& depthMap, float scaleFactor)
+{
+	if (depthMap.empty())
+		return false;
+	return DepthMap2ImageU16(depthMap, scaleFactor).Save(fileName);
 } // ExportDepthMap
 /*----------------------------------------------------------------*/
 

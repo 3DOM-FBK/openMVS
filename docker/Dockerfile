@@ -5,7 +5,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Initialize the environment 
 RUN apt update
-RUN apt install -y cmake git emacs build-essential
+RUN apt install -y cmake git emacs build-essential gdb
 
 # Prepare and empty machine for building:
 RUN apt-get update -yq
