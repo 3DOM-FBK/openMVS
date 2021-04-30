@@ -118,6 +118,7 @@ extern bool nUseSemantic;
 extern unsigned nOptimize;
 extern unsigned nEstimateColors;
 extern unsigned nEstimateNormals;
+extern unsigned ProjectLabels;
 extern float fNCCThresholdKeep;
 extern unsigned nEstimationIters;
 extern unsigned nRandomIters;
@@ -185,6 +186,7 @@ struct MVS_API DepthData {
 	NormalMap normalMap; // normal-map in camera space
 	ConfidenceMap confMap; // confidence-map
 	Image8U labels;
+	Image8U3 labelsRGB;
 	float dMin, dMax; // global depth range for this image
 	unsigned references; // how many times this depth-map is referenced (on 0 can be safely unloaded)
 	CriticalSection cs; // used to count references
@@ -469,6 +471,7 @@ MVS_API unsigned EstimatePlaneTh(const Point3Arr&, Plane&, double maxThreshold, 
 MVS_API unsigned EstimatePlaneThLockFirstPoint(const Point3Arr&, Plane&, double maxThreshold, bool arrInliers[]=NULL, size_t maxIters=0);
 
 MVS_API void EstimatePointColors(const ImageArr& images, PointCloud& pointcloud);
+MVS_API void EstimatePointLabels(const ImageArr& images, PointCloud& pointcloud);
 MVS_API void EstimatePointNormals(const ImageArr& images, PointCloud& pointcloud, int numNeighbors=16/*K-nearest neighbors*/);
 
 MVS_API bool EstimateNormalMap(const Matrix3x3f& K, const DepthMap&, NormalMap&);

@@ -123,6 +123,12 @@ bool Scene::LoadInterface(const String & fileName)
 		//imageData.maskName = Util::getLastDir(Util::getFilePath(imageData.name)) + Util::getFileName(imageData.name) + "_l.png";
 		Util::ensureUnifySlash(imageData.maskName);
 		imageData.maskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.maskName);
+		std::cout << imageData.maskName << std::endl;
+		imageData.coloredMaskName = Util::getFilePath(image.name) + PATH_SEPARATOR + Util::getFileName(image.name) + "_l_colored.png";
+		//imageData.maskName = Util::getLastDir(Util::getFilePath(imageData.name)) + Util::getFileName(imageData.name) + "_l.png";
+		Util::ensureUnifySlash(imageData.coloredMaskName);
+		imageData.coloredMaskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, imageData.coloredMaskName);
+		std::cout << imageData.coloredMaskName << std::endl;
 #else
 		if (!image.maskName.empty()) {
 			imageData.maskName = image.maskName;

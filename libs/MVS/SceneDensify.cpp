@@ -732,7 +732,7 @@ bool DepthMapsData::EstimateDepthMap(IIndex idxImage)
 /*----------------------------------------------------------------*/
 bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::MapRefArr& coords)
 {
-	#define PRIOR_DEBUG
+	//#define PRIOR_DEBUG
 	//typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 	typedef CGAL::Simple_cartesian<double> Kernel;
 	typedef Kernel::Point_2 CGALPoint2;
@@ -827,7 +827,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 					p = (b - c) / a;
 				}
 
-				if (p >= 0.55) //Try more flexible planarity threshold
+				if (p >= 0.3) //Try more flexible planarity threshold //0.5 for pipes
 				{
 					filteredPointSamples.push_back(ransacPointSamples[i]);
 				}
@@ -841,10 +841,10 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			planarity.close();
 			#endif
 
-			const int nb_neighbors = 6; // considers n nearest neighbor points
+			const int nb_neighbors = 10; // considers n nearest neighbor points
 
 			// Estimate scale of the point set with average spacing
-			double average_spacing = CGAL::compute_average_spacing<CGAL::Parallel_tag>(filteredPointSamples, nb_neighbors, CGAL::parameters::point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>()));
+			double average_spacing = CGAL::compute_average_spacing<CGAL::Sequential_tag>(filteredPointSamples, nb_neighbors, CGAL::parameters::point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>()));
 
 			filteredPointSamples.erase(
 				CGAL::remove_outliers(
@@ -867,7 +867,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			#endif
 
 			// Recompute average spacing after filtering.
-			average_spacing = CGAL::compute_average_spacing<CGAL::Parallel_tag>(filteredPointSamples, nb_neighbors, CGAL::parameters::point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>()));
+			average_spacing = CGAL::compute_average_spacing<CGAL::Sequential_tag>(filteredPointSamples, nb_neighbors, CGAL::parameters::point_map(CGAL::First_of_pair_property_map<CGALPointWithNormal>()));
 
 			// Instantiate shape detection engine.
 			Efficient_ransac ransac;
@@ -882,7 +882,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			// Set probability to miss the largest primitive at each iteration.
 			parameters.probability = 0.01;
 			// Detect shapes with at least size / n points.
-			parameters.min_points = filteredPointSamples.size() / OPTDENSE::fransacMinPointsDiv;
+			parameters.min_points = filteredPointSamples.size()/ OPTDENSE::fransacMinPointsDiv; //filteredPointSamples.size()/80 for ETH
 			// Set maximum Euclidean distance between a point and a shape.
 			parameters.epsilon = average_spacing * OPTDENSE::fransacEpsilonMul;
 			// Set maximum Euclidean distance between points to be clustered.
@@ -892,6 +892,10 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			parameters.normal_threshold = 0.25;
 			// Detect registered shapes.
 			ransac.detect(parameters);
+
+			std::cout << "epsilon: " << parameters.epsilon << std::endl;
+			std::cout << "cluster: " << parameters.cluster_epsilon << std::endl;
+
 			// Print number of detected shapes.
 			std::cout << ransac.shapes().end() - ransac.shapes().begin() << " shapes detected with at least " << parameters.min_points << " points." << std::endl;
 
@@ -929,8 +933,13 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				
 				Planed finalPlane(Eigen::Vector3d(plane.orthogonal_vector().x(), plane.orthogonal_vector().y(), plane.orthogonal_vector().z()), (Point3d(center.x(), center.y(), center.z())));			
 				
-				Point3d base_1 = (Point3d(plane.base1().x(), plane.base1().y(), plane.base1().z()));
-				Point3d base_2 = (Point3d(plane.base2().x(), plane.base2().y(), plane.base2().z()));
+				cv::Vec3d xAxis = cv::normalize(cv::Vec3d(plane.base1().x(), plane.base1().y(), plane.base1().z()));
+				cv::Vec3d yAxis = cv::normalize(cv::Vec3d(plane.base2().x(), plane.base2().y(), plane.base2().z()));
+				cv::Vec3d zAxis = cv::normalize(cv::Vec3d(plane.orthogonal_vector().x(), plane.orthogonal_vector().y(), plane.orthogonal_vector().z()));
+
+				
+				/*Point3d base_1 = (Point3d(plane.base1().x(), plane.base1().y(), plane.base1().z()));
+				Point3d base_2 = (Point3d(plane.base2().x(), plane.base2().y(), plane.base2().z()));*/
 
 				double minX = std::numeric_limits<float>::max();
 				double maxX = -std::numeric_limits<float>::max();
@@ -945,8 +954,8 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 				{				
 					CGALPoint projectedPoint = plane.projection(points[i]);
 
-					double x = base_1.dot(Point3d(projectedPoint.x(), projectedPoint.y(), projectedPoint.z()) - Point3d(center.x(), center.y(), center.z())); //double x = Side	| (point - Center);
-					double y = base_2.dot(Point3d(projectedPoint.x(), projectedPoint.y(), projectedPoint.z()) - Point3d(center.x(), center.y(), center.z())); //double y = Up | (point - Center);									
+					double x = xAxis.dot(cv::Vec3d(projectedPoint.x(), projectedPoint.y(), projectedPoint.z()) - cv::Vec3d(center.x(), center.y(), center.z())); //double x = Side	| (point - Center);
+					double y = yAxis.dot(cv::Vec3d(projectedPoint.x(), projectedPoint.y(), projectedPoint.z()) - cv::Vec3d(center.x(), center.y(), center.z())); //double y = Up | (point - Center);									
 
 					minX = std::min(x, minX);
 					minY = std::min(y, minY);
@@ -955,15 +964,15 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 					maxY = std::max(y, maxY);														
 				}
 
-				Point3d upperRight = Point3d(center.x(), center.y(), center.z()) + base_1 * maxX + base_2 * maxY;
-				Point3d upperLeft = Point3d(center.x(), center.y(), center.z()) + base_1 * minX + base_2 * maxY;
-				Point3d lowerRight = Point3d(center.x(), center.y(), center.z()) + base_1 * maxX + base_2 * minY;
-				Point3d lowerLeft = Point3d(center.x(), center.y(), center.z()) + base_1 * minX + base_2 * minY;
+				Point3d upperRight = cv::Vec3d(center.x(), center.y(), center.z()) + xAxis * maxX + yAxis * maxY;
+				Point3d upperLeft = cv::Vec3d(center.x(), center.y(), center.z()) + xAxis * minX + yAxis * maxY;
+				Point3d lowerRight = cv::Vec3d(center.x(), center.y(), center.z()) + xAxis * maxX + yAxis * minY;
+				Point3d lowerLeft = cv::Vec3d(center.x(), center.y(), center.z()) + xAxis * minX + yAxis * minY;
 
-				Point2 upperRight_2D = depthData.images.First().camera.TransformPointW2I(Point3(upperRight.x, upperRight.y, upperRight.z));
-				Point2 upperLeft_2D = depthData.images.First().camera.TransformPointW2I(Point3(upperLeft.x, upperLeft.y, upperLeft.z));
-				Point2 lowerRight_2D = depthData.images.First().camera.TransformPointW2I(Point3(lowerRight.x, lowerRight.y, lowerRight.z));
-				Point2 lowerLeft_2D = depthData.images.First().camera.TransformPointW2I(Point3(lowerLeft.x, lowerLeft.y, lowerLeft.z));
+				Point2 upperRight_2D = depthData.images.First().camera.TransformPointW2I(Point3(upperRight[0], upperRight[1], upperRight[2]));
+				Point2 upperLeft_2D = depthData.images.First().camera.TransformPointW2I(Point3(upperLeft[0], upperLeft[1], upperLeft[2]));
+				Point2 lowerRight_2D = depthData.images.First().camera.TransformPointW2I(Point3(lowerRight[0], lowerRight[1], lowerRight[2]));
+				Point2 lowerLeft_2D = depthData.images.First().camera.TransformPointW2I(Point3(lowerLeft[0], lowerLeft[1], lowerLeft[2]));
 
 				std::vector<CGALPoint2> BB = { 
 					CGALPoint2(lowerLeft_2D.x, lowerLeft_2D.y), 
@@ -1052,7 +1061,7 @@ bool DepthMapsData::GenerateDepthPrior(DepthData& depthData, DepthEstimator::Map
 			#endif
 
 			#if 1 && TD_VERBOSE != TD_VERBOSE_OFF
-			if (g_nVerbosityLevel > 4) 
+			if (g_nVerbosityLevel > 2) 
 			{
 				ExportDepthMap(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.png"), depthMap);
 				SaveDepthMap(ComposeDepthFilePath(depthData.GetView().GetID(), "prior.dmap"), depthMap);

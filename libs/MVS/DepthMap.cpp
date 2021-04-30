@@ -98,6 +98,7 @@ MDEFVAR_OPTDENSE_bool(nUseSemantic, "Use semantic label masks", "Use semantic la
 MDEFVAR_OPTDENSE_uint32(nOptimize, "Optimize", "should we filter the extracted depth-maps?", "7") // see DepthFlags
 MDEFVAR_OPTDENSE_uint32(nEstimateColors, "Estimate Colors", "should we estimate the colors for the dense point-cloud?", "2", "0", "1")
 MDEFVAR_OPTDENSE_uint32(nEstimateNormals, "Estimate Normals", "should we estimate the normals for the dense point-cloud?", "0", "1", "2")
+MDEFVAR_OPTDENSE_uint32(ProjectLabels, "Project Labels", "should we estimate the labels for the dense point-cloud?", "0", "1")
 MDEFVAR_OPTDENSE_float(fNCCThresholdKeep, "NCC Threshold Keep", "Maximum 1-NCC score accepted for a match", "0.55", "0.3")
 MDEFVAR_OPTDENSE_uint32(nEstimationIters, "Estimation Iters", "Number of iterations for depth-map refinement", "4")
 MDEFVAR_OPTDENSE_uint32(nRandomIters, "Random Iters", "Number of iterations for random assignment per pixel", "6")
@@ -542,7 +543,7 @@ float DepthEstimator::ScorePixelImage(const ViewData& image1, Depth depth, const
 			const float weightTexture = EXP(-normSq0 / (2 * SQUARE(fsigmaTexture)));
 			const float weightPrior = EXP(-SQUARE(depthDifference) / (2 * SQUARE(fsigmaPrior)));
 
-			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior);// * (weightTexture); // check influence of weightTexture on weightPrior
+			score = score * (1.f - weightTexture) + fSemanticConsistencyMul * (1.f - weightPrior)* (weightTexture); // check influence of weightTexture on weightPrior
 		}			
 	}	
 	
@@ -1376,6 +1377,62 @@ void MVS::EstimatePointColors(const ImageArr& images, PointCloud& pointcloud)
 
 	DEBUG_ULTIMATE("Estimate dense point cloud colors: %u colors (%s)", pointcloud.colors.GetSize(), TD_TIMER_GET_FMT().c_str());
 } // EstimatePointColors
+/*----------------------------------------------------------------*/
+
+// estimate the labels dense point cloud
+void MVS::EstimatePointLabels(const ImageArr& images, PointCloud& pointcloud)
+{
+	TD_TIMER_START();
+
+	std::map<String, Image8U3> labels;
+
+	pointcloud.colors.Resize(pointcloud.points.GetSize());
+	FOREACH(i, pointcloud.colors) {
+		PointCloud::Color& color = pointcloud.colors[i];
+		const PointCloud::Point& point = pointcloud.points[i];
+		const PointCloud::ViewArr& views= pointcloud.pointViews[i];
+		// compute vertex color
+		REAL bestDistance(FLT_MAX);
+		const Image* pImageData(NULL);
+		FOREACHPTR(pView, views) {						
+			const Image& imageData = images[*pView];						
+			ASSERT(imageData.IsValid());	
+			// compute the distance from the 3D point to the image
+			const REAL distance(imageData.camera.PointDepth(point));
+			ASSERT(distance > 0);
+			if (bestDistance > distance) {
+				bestDistance = distance;
+				pImageData = &imageData;
+			}
+		}
+
+		// if image not loaded -> insert in map
+		if (labels.find(pImageData->coloredMaskName) == labels.end())
+		{			
+			std::cout << pImageData->coloredMaskName << std::endl;
+			labels[pImageData->coloredMaskName].Load(pImageData->coloredMaskName);
+
+			if (labels[pImageData->coloredMaskName].size() != pImageData->GetSize())
+			{
+				cv::resize(labels[pImageData->coloredMaskName], labels[pImageData->coloredMaskName], pImageData->GetSize(), 0, 0, cv::INTER_NEAREST);
+				std::cout << labels[pImageData->coloredMaskName].size() << std::endl;
+			}
+		}
+
+		if (pImageData == NULL) {
+			// set a dummy color
+			color = Pixel8U::WHITE;
+		} else {
+			// get image color
+			const Point2f proj(pImageData->camera.ProjectPointP(point));		
+			//color = (pImageData->image.isInsideWithBorder<float,1>(proj) ? labels[pImageData->coloredMaskName].sample(proj) : Pixel8U::RED);
+			//std::cout << color.r << " " << color.g << " " << color.b <<  std::endl;
+			color = (Pixel8U)labels[pImageData->coloredMaskName].sample(proj);
+		}
+	}
+
+	DEBUG_ULTIMATE("Estimate dense point cloud labels: %u labels (%s)", pointcloud.colors.GetSize(), TD_TIMER_GET_FMT().c_str());
+} // EstimatePointLabels
 /*----------------------------------------------------------------*/
 
 // estimates the normals through PCA over the K nearest neighbors

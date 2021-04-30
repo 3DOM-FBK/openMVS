@@ -55,6 +55,7 @@ int nArchiveType;
 int nProcessPriority;
 unsigned nMaxThreads;
 String strConfigFileName;
+
 boost::program_options::variables_map vm;
 } // namespace OPT
 
@@ -101,6 +102,7 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	float fransacEpsilonMul;
 	float fransacClusterMul;
 	float fransacMinPointsDiv;
+	unsigned ProjectLabels;
 	boost::program_options::options_description config("Densify options");
 	config.add_options()
 		("input-file,i", boost::program_options::value<std::string>(&OPT::strInputFileName), "input filename containing camera poses and image list")
@@ -123,6 +125,7 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 		("ransac-epsilon", boost::program_options::value(&fransacEpsilonMul)->default_value(2), "value to which avg_spacing will be multiplied for epsilon")
 		("ransac-cluster", boost::program_options::value(&fransacClusterMul)->default_value(10), "value to which avg_spacing will be multiplied for cluster")
 		("ransac-min-points", boost::program_options::value(&fransacMinPointsDiv)->default_value(80), "value to which total points will be divided for min points")
+		("project-labels", boost::program_options::value(&ProjectLabels)->default_value(0), "project semantic labels to 3D point cloud (0 - disabled)")
 		;
 
 
@@ -196,6 +199,7 @@ bool Initialize(size_t argc, LPCTSTR* argv)
 	OPTDENSE::nMinViewsFuse = nMinViewsFuse;
 	OPTDENSE::nEstimateColors = nEstimateColors;
 	OPTDENSE::nEstimateNormals = nEstimateNormals;
+	OPTDENSE::ProjectLabels = ProjectLabels;
 	OPTDENSE::nIgnoreMaskLabel = nIgnoreMaskLabel;
 	OPTDENSE::nUseSemantic = nUseSemantic;
 	OPTDENSE::fSemanticConsistencyMul = fSemanticConsistencyMul;
@@ -273,6 +277,25 @@ int main(int argc, LPCTSTR* argv)
 		// filter point-cloud based on camera-point visibility intersections
 		scene.PointCloudFilter(OPT::thFilterPointCloud);
 		const String baseFileName(MAKE_PATH_SAFE(Util::getFileFullName(OPT::strOutputFileName))+_T("_filtered"));
+		scene.Save(baseFileName+_T(".mvs"), (ARCHIVE_TYPE)OPT::nArchiveType);
+		scene.pointcloud.Save(baseFileName+_T(".ply"));
+		Finalize();
+		return EXIT_SUCCESS;
+	}
+
+	if (OPTDENSE::ProjectLabels == 1) {
+
+		for (Image& image: scene.images) {
+			image.coloredMaskName = Util::getFilePath(image.name) + PATH_SEPARATOR + Util::getFileName(image.name) + "_l_colored.png";
+			//imageData.maskName = Util::getLastDir(Util::getFilePath(imageData.name)) + Util::getFileName(imageData.name) + "_l.png";
+			Util::ensureUnifySlash(image.coloredMaskName);
+			image.coloredMaskName = MAKE_PATH_FULL(WORKING_FOLDER_FULL, image.coloredMaskName);			
+		}
+
+		// colorize point cloud
+		EstimatePointLabels(scene.images, scene.pointcloud);
+
+		const String baseFileName(MAKE_PATH_SAFE(Util::getFileFullName(OPT::strOutputFileName))+_T("_labelled"));
 		scene.Save(baseFileName+_T(".mvs"), (ARCHIVE_TYPE)OPT::nArchiveType);
 		scene.pointcloud.Save(baseFileName+_T(".ply"));
 		Finalize();

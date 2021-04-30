@@ -81,6 +81,7 @@ public:
 	uint32_t ID; // global ID of the image
 	String name; // image file name (relative path)
 	String maskName; // segmentation file name (optional)
+	String coloredMaskName; // segmentation file name (optional)
 	Camera camera; // view's pose
 	uint32_t width, height; // image size
 	Image8U3 image; // image color pixels
